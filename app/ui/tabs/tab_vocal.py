@@ -29,6 +29,7 @@ class TabVocal(QWidget):
         self._init_ui()
         self._refresh_devices()
         self._refresh_presets_combo()
+        self._on_preset_selected(self.combo_presets.currentIndex())
 
         # Timer de atualização visual dos medidores VU (30 FPS)
         self.meter_timer = QTimer(self)
@@ -279,8 +280,8 @@ class TabVocal(QWidget):
         layout.addWidget(self.slider_tune_speed, 1, 2)
         layout.addWidget(self.lbl_tune_speed, 1, 3)
 
-        # Quantidade (Dry/Wet)
-        layout.addWidget(QLabel("Intensidade (Dry/Wet):"), 1, 4)
+        # Intensidade da correção em semitons.
+        layout.addWidget(QLabel("Intensidade da Correção:"), 1, 4)
         self.slider_tune_amount = QSlider(Qt.Orientation.Horizontal)
         self.slider_tune_amount.setRange(0, 100)
         self.slider_tune_amount.setValue(int(self.engine.fx_chain.autotune.amount * 100))

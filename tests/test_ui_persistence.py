@@ -79,6 +79,8 @@ def test_export_includes_pending_text(editor, tmp_path, monkeypatch):
 
 def test_window_close_flushes_pending_lyrics(qapp, no_audio_devices):
     window = MainWindow()
+    preset = window.preset_mgr.load_preset(window.tab_vocal.combo_presets.currentText())
+    assert window.engine.fx_chain.autotune.enabled == preset["autotune"]["enabled"]
     tab = window.tab_lyrics
     lyric_id = tab.active_lyric_id
     tab.text_editor.setPlainText("saved before closing")
