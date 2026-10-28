@@ -5,6 +5,7 @@ Representa uma faixa isolada no Stem Player com controles de Mute, Solo, Volume 
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSlider
 from PyQt6.QtCore import Qt, pyqtSignal
+import math
 
 class StemStripWidget(QWidget):
     mute_toggled = pyqtSignal(str, bool)   # stem_name, mute_state
@@ -16,13 +17,7 @@ class StemStripWidget(QWidget):
         self.stem_name = stem_name
         self.display_title = display_title
 
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1f2129;
-                border: 1px solid #2e313d;
-                border-radius: 6px;
-            }
-        """)
+        self.setObjectName("stemStrip")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -36,12 +31,15 @@ class StemStripWidget(QWidget):
 
         self.lbl_title = QLabel(display_title)
         self.lbl_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #ffffff; border: none; background: transparent;")
-        self.lbl_title.setFixedWidth(130)
+        self.lbl_title.setMinimumWidth(120)
+        self.lbl_title.setToolTip(display_title)
         layout.addWidget(self.lbl_title)
 
         # 2. Botão Mute (M)
         self.btn_mute = QPushButton("M")
         self.btn_mute.setCheckable(True)
+        self.btn_mute.setToolTip("Silenciar esta faixa")
+        self.btn_mute.setAccessibleName(f"Silenciar {display_title}")
         self.btn_mute.setFixedSize(32, 28)
         self.btn_mute.setStyleSheet("""
             QPushButton {
@@ -63,6 +61,8 @@ class StemStripWidget(QWidget):
         # 3. Botão Solo (S)
         self.btn_solo = QPushButton("S")
         self.btn_solo.setCheckable(True)
+        self.btn_solo.setToolTip("Ouvir somente esta faixa")
+        self.btn_solo.setAccessibleName(f"Ouvir somente {display_title}")
         self.btn_solo.setFixedSize(32, 28)
         self.btn_solo.setStyleSheet("""
             QPushButton {
@@ -83,6 +83,7 @@ class StemStripWidget(QWidget):
 
         # 4. Slider de Volume
         self.slider_vol = QSlider(Qt.Orientation.Horizontal)
+        self.slider_vol.setAccessibleName(f"Volume de {display_title}")
         self.slider_vol.setRange(0, 150)
         self.slider_vol.setValue(100)
         self.slider_vol.valueChanged.connect(self._on_volume)
@@ -106,7 +107,7 @@ class StemStripWidget(QWidget):
         if linear <= 0.001:
             self.lbl_vol_db.setText("-∞ dB")
         else:
-            db = 20.0 * (val / 100.0 - 1.0) * 1.5
+            db = 20.0 * math.log10(linear)
             self.lbl_vol_db.setText(f"{db:+.1f} dB")
         self.volume_changed.emit(self.stem_name, linear)
 

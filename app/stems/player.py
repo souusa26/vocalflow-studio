@@ -76,6 +76,9 @@ class StemPlayer:
 
     def play(self):
         with self.lock:
+            # Pressing play after reaching the end should replay the song.
+            if self.total_frames and self.playhead_frame >= self.total_frames:
+                self.playhead_frame = 0
             self.is_playing = True
 
     def pause(self):

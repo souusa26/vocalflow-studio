@@ -27,9 +27,7 @@ class AudioEngine:
         self.stem_player = StemPlayer(sample_rate)
 
         # Buffers independentes e limitados para cada saída
-        self.buf_virtual = AudioRingBuffer(capacity=32768, channels=2)
-        self.buf_mon1 = AudioRingBuffer(capacity=32768, channels=2)
-        self.buf_mon2 = AudioRingBuffer(capacity=32768, channels=2)
+        self._create_buffers()
 
         self.output_limiters = {name: LimiterAndMeter(sample_rate)
                                 for name in ("virtual", "mon1", "mon2")}
@@ -56,10 +54,22 @@ class AudioEngine:
         self.on_error: Optional[Callable[[str], None]] = None
         self.on_device_state_changed: Optional[Callable[[], None]] = None
 
+    def _create_buffers(self):
+        # Bound accumulated latency if output and input clocks drift apart.
+        # A minimum of 2048 frames allows for scheduling jitter at small blocks.
+        capacity = max(2048, 4 * self.block_size)
+        self.buf_virtual = AudioRingBuffer(capacity=capacity, channels=2)
+        self.buf_mon1 = AudioRingBuffer(capacity=capacity, channels=2)
+        self.buf_mon2 = AudioRingBuffer(capacity=capacity, channels=2)
+
     def start(self):
         """Open all selected destinations or roll back the whole start operation."""
         if self.is_running:
             return
+        # After a callback abort, streams may still exist until the UI reports it.
+        if any(stream is not None for stream in
+               (self._stream_input, self._stream_virtual, self._stream_mon1, self._stream_mon2)):
+            self.stop()
         self.last_error = None
         self.buf_virtual.clear()
         self.buf_mon1.clear()
@@ -109,6 +119,7 @@ class AudioEngine:
                 self.fx_chain.set_sample_rate(rate)
                 self.stem_player.set_sample_rate(rate)
             self.sample_rate, self.block_size = rate, size
+            self._create_buffers()
             if running:
                 self.start()
         except Exception as exc:

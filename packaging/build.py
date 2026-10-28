@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_DIR = ROOT_DIR / "build"
-PORTABLE_ZIP = ROOT_DIR / "dist" / "VocalFlowStudio_Portatil_v1.0.0.zip"
+PORTABLE_ZIP = ROOT_DIR / "dist" / "VocalFlowStudio_Portatil_v1.1.0.zip"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -49,7 +49,7 @@ def build():
     marker = target_app_dir / "portable.txt"
     try:
         marker.write_text("VocalFlowStudio Portable Mode\n", encoding="utf-8")
-        shutil.make_archive(str(DIST_DIR / "VocalFlowStudio_Portatil_v1.0.0"), "zip", target_app_dir)
+        shutil.make_archive(str(DIST_DIR / "VocalFlowStudio_Portatil_v1.1.0"), "zip", target_app_dir)
     finally:
         marker.unlink(missing_ok=True)
 

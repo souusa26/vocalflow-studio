@@ -47,7 +47,30 @@ def test_live_reconfigure_reopens_streams_with_new_format(streams):
     assert (engine.sample_rate, engine.block_size) == (44100, 512)
     assert engine._stream_input.samplerate == 44100
     assert engine._stream_input.blocksize == 512
+    assert engine.buf_virtual.capacity == 2048
     for old in initial:
+        old.close.assert_called_once()
+    engine.stop()
+
+
+def test_output_buffers_bound_audio_backlog_for_large_blocks():
+    engine = AudioEngine(block_size=1024)
+    assert engine.buf_virtual.capacity == 4096
+    engine.configure(block_size=256)
+    assert engine.buf_virtual.capacity == 2048
+
+
+def test_restart_after_callback_abort_closes_old_streams(streams, monkeypatch):
+    engine = AudioEngine()
+    engine.virtual_device_id = 1
+    engine.start()
+    old_streams = list(streams)
+    monkeypatch.setattr(engine.fx_chain, "process", Mock(side_effect=ValueError("DSP failed")))
+    with pytest.raises(sd.CallbackAbort):
+        engine._input_callback(np.zeros((256, 1)), 256, None, None)
+    engine.start()
+    assert engine.is_running
+    for old in old_streams:
         old.close.assert_called_once()
     engine.stop()
 

@@ -2,7 +2,7 @@
 ; VocalFlow Studio - Live Voice FX
 
 #define MyAppName "VocalFlow Studio - Live Voice FX"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "VocalFlow Team"
 #define MyAppURL "https://github.com/souusa26/vocalflow-studio"
 #define MyAppExeName "VocalFlowStudio.exe"
@@ -19,7 +19,7 @@ DefaultDirName={autopf}\VocalFlowStudio
 DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE
 OutputDir=..\dist_installer
-OutputBaseFilename=VocalFlowStudio_Instalador_v1.0.0
+OutputBaseFilename=VocalFlowStudio_Instalador_v1.1.0
 Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern

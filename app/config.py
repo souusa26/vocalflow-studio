@@ -10,7 +10,7 @@ from pathlib import Path
 
 APP_NAME = "VocalFlowStudio"
 APP_TITLE = "VocalFlow Studio - Live Voice FX"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 def get_base_dir() -> Path:
     """Retorna o diretório base da aplicação (suporta PyInstaller frozen e desenvolvimento)."""

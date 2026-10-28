@@ -38,20 +38,18 @@ class StemExporter:
             
             total_len = player.total_frames
             sr = player.target_sample_rate
-            mixed = np.zeros((total_len, 2), dtype=np.float32)
-
             any_solo = any(t.solo for t in player.tracks.values())
+            tracks = [(track.data, track.volume) for track in player.tracks.values()
+                      if (not any_solo or track.solo) and not track.mute and track.volume > 0.001]
 
-            for stem_name, track in player.tracks.items():
-                if any_solo and not track.solo:
-                    continue
-                if track.mute or track.volume <= 0.001:
-                    continue
-                t_len = len(track.data)
-                mixed[:t_len] += track.data[:total_len] * track.volume
+        # Mixing a whole song under the player lock blocks the real-time callback.
+        mixed = np.zeros((total_len, 2), dtype=np.float32)
+        for data, volume in tracks:
+            t_len = min(len(data), total_len)
+            mixed[:t_len] += data[:t_len] * volume
 
         # Limiter suave para evitar clipping na exportação
-        peak = np.max(np.abs(mixed))
+        peak = np.max(np.abs(mixed)) if total_len else 0.0
         if peak > 0.99:
             mixed = mixed * (0.98 / peak)
 

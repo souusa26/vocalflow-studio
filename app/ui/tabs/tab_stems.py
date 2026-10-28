@@ -5,6 +5,8 @@ cantar por cima com monitoramento e roteamento seletivo para Discord/OBS.
 """
 
 from pathlib import Path
+import importlib.util
+import sys
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QProgressBar, QFileDialog, QMessageBox, QGroupBox, QSlider, QCheckBox,
@@ -69,42 +71,55 @@ class TabStems(QWidget):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
+        intro = QLabel("Prepare sua música, ajuste cada faixa e cante por cima.")
+        intro.setObjectName("sectionIntro")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
         # -------------------------------------------------------------
         # 1. SEÇÃO DE IMPORTAÇÃO E SEPARAÇÃO DE FONTES
         # -------------------------------------------------------------
-        sep_group = QGroupBox("Importar e Separar Música em Faixas (Stem Separator)")
+        sep_group = QGroupBox("1  ·  Escolha uma música")
         sep_layout = QVBoxLayout(sep_group)
         sep_layout.setContentsMargins(14, 14, 14, 14)
         sep_layout.setSpacing(10)
 
         top_row = QHBoxLayout()
-        self.btn_select_file = QPushButton("📁 Escolher Música (MP3, WAV, FLAC, OGG)...")
+        self.btn_select_file = QPushButton("Escolher arquivo")
         self.btn_select_file.setFixedHeight(36)
         self.btn_select_file.clicked.connect(self._select_audio_file)
         top_row.addWidget(self.btn_select_file)
 
-        self.lbl_selected_file = QLabel("Nenhum arquivo carregado")
+        self.lbl_selected_file = QLabel("Nenhuma música selecionada")
         self.lbl_selected_file.setStyleSheet("color: #9e9e9e; font-style: italic;")
         top_row.addWidget(self.lbl_selected_file, stretch=1)
 
-        self.chk_use_ai = QCheckBox("Usar Modelo Neural Demucs (4 Stems IA)")
-        self.chk_use_ai.setToolTip("Processamento neural de estúdio. Requer PyTorch instalado.")
-        top_row.addWidget(self.chk_use_ai)
+        sep_layout.addLayout(top_row)
+        options_row = QHBoxLayout()
+        self.chk_use_ai = QCheckBox("Usar separação por IA (Demucs)")
+        ai_available = (not getattr(sys, "frozen", False)
+                        and importlib.util.find_spec("demucs") is not None
+                        and importlib.util.find_spec("torch") is not None)
+        self.chk_use_ai.setEnabled(ai_available)
+        self.chk_use_ai.setToolTip("Demucs e PyTorch precisam estar instalados no ambiente Python."
+                                   if ai_available else "IA indisponível nesta instalação; a separação rápida será usada.")
+        options_row.addWidget(self.chk_use_ai)
+        options_row.addStretch()
 
-        self.btn_start_sep = QPushButton("⚡ Iniciar Separação")
+        self.btn_start_sep = QPushButton("Separar faixas")
         self.btn_start_sep.setObjectName("btn_primary")
         self.btn_start_sep.setFixedHeight(36)
         self.btn_start_sep.setEnabled(False)
         self.btn_start_sep.clicked.connect(self._start_separation)
-        top_row.addWidget(self.btn_start_sep)
+        options_row.addWidget(self.btn_start_sep)
 
-        self.btn_cancel_sep = QPushButton("✖ Cancelar")
+        self.btn_cancel_sep = QPushButton("Cancelar")
         self.btn_cancel_sep.setFixedHeight(36)
         self.btn_cancel_sep.setEnabled(False)
         self.btn_cancel_sep.clicked.connect(self._cancel_separation)
-        top_row.addWidget(self.btn_cancel_sep)
+        options_row.addWidget(self.btn_cancel_sep)
 
-        sep_layout.addLayout(top_row)
+        sep_layout.addLayout(options_row)
 
         # Barra de Progresso
         prog_row = QHBoxLayout()
@@ -123,10 +138,15 @@ class TabStems(QWidget):
         # -------------------------------------------------------------
         # 2. SEÇÃO STEM PLAYER & REPRODUÇÃO MULTI-FAIXA
         # -------------------------------------------------------------
-        player_group = QGroupBox("Reprodutor de Stems & Base para Canto (Backing Track)")
+        player_group = QGroupBox("2  ·  Ouça e ajuste as faixas")
         player_layout = QVBoxLayout(player_group)
         player_layout.setContentsMargins(14, 14, 14, 14)
         player_layout.setSpacing(10)
+
+        player_hint = QLabel("Ajuste o volume de cada faixa. M silencia; S toca somente a faixa escolhida.")
+        player_hint.setObjectName("mutedText")
+        player_hint.setWordWrap(True)
+        player_layout.addWidget(player_hint)
 
         # Linha de Transporte (Play, Pause, Stop, Timeline, Roteamento)
         trans_layout = QHBoxLayout()
@@ -166,12 +186,12 @@ class TabStems(QWidget):
 
         # Linha de Regras de Roteamento de Áudio
         route_layout = QHBoxLayout()
-        self.chk_route_monitors = QCheckBox("🔊 Ouvir instrumental nos Monitores (Fones/Caixas)")
+        self.chk_route_monitors = QCheckBox("Ouvir a música nos fones ou monitores")
         self.chk_route_monitors.setChecked(True)
         self.chk_route_monitors.toggled.connect(lambda v: setattr(self.player, "send_to_monitors", v))
         route_layout.addWidget(self.chk_route_monitors)
 
-        self.chk_route_virtual = QCheckBox("🎙️ Enviar instrumental junto ao Microfone Virtual (Discord / OBS)")
+        self.chk_route_virtual = QCheckBox("Enviar música ao Discord / OBS")
         self.chk_route_virtual.setChecked(False) # Padrão desligado para proteção
         self.chk_route_virtual.setToolTip(
             "CUIDADO: Se ativado, a música será transmitida para quem está ouvindo você no Discord/OBS. "
@@ -196,15 +216,16 @@ class TabStems(QWidget):
         # Cria os canais de stems
         self.stem_strips = {}
         stem_defs = [
-            ("instrumental", "Instrumental Completo", "🎹"),
-            ("vocals", "Voz Principal (Acapella)", "🎤"),
-            ("drums", "Bateria & Percussão", "🥁"),
-            ("bass", "Baixo & Sub-Grave", "🎸"),
-            ("other", "Outros Sintetizadores", "🎼"),
+            ("instrumental", "Instrumental", "🎹"),
+            ("vocals", "Voz", "🎤"),
+            ("drums", "Bateria", "🥁"),
+            ("bass", "Baixo", "🎸"),
+            ("other", "Outros", "🎼"),
         ]
 
         for s_name, s_title, s_icon in stem_defs:
             strip = StemStripWidget(s_name, s_title, s_icon)
+            strip.setEnabled(False)
             strip.mute_toggled.connect(self.player.set_stem_mute)
             strip.solo_toggled.connect(self.player.set_stem_solo)
             strip.volume_changed.connect(self.player.set_stem_volume)
@@ -216,20 +237,33 @@ class TabStems(QWidget):
 
         # Botões de Exportação
         export_row = QHBoxLayout()
-        btn_exp_inst = QPushButton("💾 Exportar Instrumental")
-        btn_exp_inst.clicked.connect(lambda: self._export_single_stem("instrumental", "instrumental.wav"))
-        export_row.addWidget(btn_exp_inst)
+        self.btn_exp_inst = QPushButton("Exportar instrumental")
+        self.btn_exp_inst.clicked.connect(lambda: self._export_single_stem("instrumental", "instrumental.wav"))
+        export_row.addWidget(self.btn_exp_inst)
 
-        btn_exp_voc = QPushButton("💾 Exportar Voz (Acapella)")
-        btn_exp_voc.clicked.connect(lambda: self._export_single_stem("vocals", "acapella.wav"))
-        export_row.addWidget(btn_exp_voc)
+        self.btn_exp_voc = QPushButton("Exportar voz")
+        self.btn_exp_voc.clicked.connect(lambda: self._export_single_stem("vocals", "acapella.wav"))
+        export_row.addWidget(self.btn_exp_voc)
 
-        btn_exp_mix = QPushButton("💾 Exportar Mixagem Atual")
-        btn_exp_mix.clicked.connect(self._export_custom_mix)
-        export_row.addWidget(btn_exp_mix)
+        self.btn_exp_mix = QPushButton("Exportar mix atual")
+        self.btn_exp_mix.clicked.connect(self._export_custom_mix)
+        export_row.addWidget(self.btn_exp_mix)
 
         player_layout.addLayout(export_row)
         layout.addWidget(player_group)
+        self._update_player_controls()
+
+    def _update_player_controls(self):
+        has_tracks = bool(self.player.tracks)
+        playing = self.player.is_playing
+        self.btn_play.setEnabled(has_tracks and not playing)
+        self.btn_pause.setEnabled(has_tracks and playing)
+        self.btn_stop.setEnabled(has_tracks)
+        self.slider_time.setEnabled(has_tracks)
+        self.chk_loop.setEnabled(has_tracks)
+        self.btn_exp_inst.setEnabled("instrumental" in self.player.tracks)
+        self.btn_exp_voc.setEnabled("vocals" in self.player.tracks)
+        self.btn_exp_mix.setEnabled(has_tracks)
 
     # -------------------------------------------------------------
     # OPERAÇÕES DE ARQUIVO E SEPARAÇÃO
@@ -242,6 +276,7 @@ class TabStems(QWidget):
         if path:
             self.selected_file_path = Path(path)
             self.lbl_selected_file.setText(self.selected_file_path.name)
+            self.lbl_selected_file.setToolTip(str(self.selected_file_path))
             self.lbl_selected_file.setStyleSheet("color: #ffffff; font-weight: bold;")
             self.btn_start_sep.setEnabled(True)
 
@@ -253,6 +288,8 @@ class TabStems(QWidget):
         self.btn_start_sep.setEnabled(False)
         self.btn_cancel_sep.setEnabled(True)
         self.btn_select_file.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.lbl_progress_status.setText("Preparando a separação…")
 
         self.worker = SeparationWorker(self.selected_file_path, use_ai)
         self.worker.progress_changed.connect(self._on_worker_progress)
@@ -280,6 +317,7 @@ class TabStems(QWidget):
             return
         for name, strip in self.stem_strips.items():
             track = self.player.tracks.get(name)
+            strip.setEnabled(track is not None)
             strip.btn_mute.blockSignals(True)
             strip.btn_solo.blockSignals(True)
             strip.slider_vol.blockSignals(True)
@@ -291,11 +329,11 @@ class TabStems(QWidget):
             strip.btn_solo.blockSignals(False)
             strip.slider_vol.blockSignals(False)
         self.progress_bar.setValue(100)
-        self.lbl_progress_status.setText("Faixas separadas prontas no mixer!")
+        self.lbl_progress_status.setText("Faixas prontas. Ajuste os volumes e pressione Reproduzir.")
         self.btn_start_sep.setEnabled(True)
         self.btn_cancel_sep.setEnabled(False)
         self.btn_select_file.setEnabled(True)
-        QMessageBox.information(self, "Separação Concluída", "Faixas de stems geradas e carregadas no reprodutor com sucesso!")
+        self._update_player_controls()
 
     def _on_worker_error(self, err_msg: str):
         if getattr(self.window(), "_waiting_for_worker", False):
@@ -316,13 +354,17 @@ class TabStems(QWidget):
         try:
             if not self.engine.is_running:
                 self.engine.start()
+            if self.player.get_position_seconds() >= self.player.get_duration_seconds():
+                self.player.seek_seconds(0)
             self.player.play()
+            self._update_player_controls()
         except RuntimeError as exc:
             QMessageBox.warning(self, "Reprodução", str(exc))
 
     def _stop_stems(self):
         self.player.stop()
         self.slider_time.setValue(0)
+        self._update_player_controls()
 
     def _on_seek(self, slider_val: int):
         dur = self.player.get_duration_seconds()
@@ -331,6 +373,7 @@ class TabStems(QWidget):
             self.player.seek_seconds(target_sec)
 
     def _update_timeline(self):
+        self._update_player_controls()
         dur = self.player.get_duration_seconds()
         pos = self.player.get_position_seconds()
 
