@@ -141,7 +141,7 @@ class TabLyrics(QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, stretch=1)
 
     # -------------------------------------------------------------
     # OPERAÇÕES DE LISTA E SELEÇÃO
