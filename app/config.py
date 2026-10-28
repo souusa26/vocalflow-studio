@@ -10,7 +10,7 @@ from pathlib import Path
 
 APP_NAME = "VocalFlowStudio"
 APP_TITLE = "VocalFlow Studio - Live Voice FX"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 def get_base_dir() -> Path:
     """Retorna o diretório base da aplicação (suporta PyInstaller frozen e desenvolvimento)."""
@@ -81,7 +81,7 @@ def get_settings_file() -> Path:
 
 DEFAULT_SETTINGS = {
     "sample_rate": 48000,
-    "block_size": 256,
+    "block_size": 512,
     "input_device": None,
     "virtual_device": None,
     "monitor1_device": None,

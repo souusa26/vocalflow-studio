@@ -46,8 +46,8 @@ class TabSettings(QWidget):
         buffer_layout.addWidget(QLabel("Tamanho do buffer"), 0, 0)
         self.combo_buffer = QComboBox()
         self.combo_buffer.addItems(["128 amostras — menor atraso",
-                                    "256 amostras — recomendado",
-                                    "512 amostras — mais estável",
+                                    "256 amostras — menor atraso",
+                                    "512 amostras — recomendado",
                                     "1024 amostras — para computadores mais lentos"])
         self.combo_buffer.setCurrentIndex([128, 256, 512, 1024].index(self.engine.block_size))
         self.combo_buffer.setToolTip("Se ouvir falhas ou estalos, experimente aumentar o buffer.")
@@ -167,7 +167,8 @@ class TabSettings(QWidget):
     def _show_latency(self):
         ms = self.engine.block_size / self.engine.sample_rate * 1000.0
         self.lbl_latency_info.setText(
-            f"Cada buffer: {ms:.1f} ms. O atraso total também depende da afinação e dos dispositivos. "
+            f"Cada buffer: {ms:.1f} ms. Uma fila adicional ajuda a evitar cortes; "
+            "o atraso total também depende da afinação e dos dispositivos. "
             "Se ouvir estalos, aumente o tamanho do buffer.")
 
     def _on_buffer_changed(self, idx: int):

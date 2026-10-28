@@ -30,6 +30,16 @@ class VocalFXChain:
         self.reverb = Reverb(sample_rate)
         self.limiter = LimiterAndMeter(sample_rate)
 
+    def warm_up(self):
+        """Compile real-time kernels before any audio callback can run.
+
+        Each effect uses temporary buffers so warming up does not affect the
+        signal or the effect state, even if it is currently disabled.
+        """
+        for effect in (self.gate, self.autotune, self.compressor,
+                       self.delay, self.reverb, self.limiter):
+            effect.warm_up()
+
     def set_sample_rate(self, sample_rate: int):
         state = self.get_state()
         self.__init__(sample_rate)

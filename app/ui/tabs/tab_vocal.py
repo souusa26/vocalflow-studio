@@ -13,7 +13,8 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
 
 from app.audio.engine import AudioEngine
-from app.audio.devices import get_audio_devices, find_virtual_cable_output, is_speaker_name
+from app.audio.devices import (get_audio_devices, find_virtual_cable_output,
+                               find_default_input, find_default_output, is_speaker_name)
 from app.audio.dsp.autotune import NOTE_NAMES, SCALE_INTERVALS
 from app.presets.manager import PresetManager
 from app.ui.widgets.vu_meter import VUMeter
@@ -135,6 +136,15 @@ class TabVocal(QWidget):
         """)
         self.lbl_feedback_warning.setVisible(False)
         main_layout.addWidget(self.lbl_feedback_warning)
+
+        self.lbl_audio_warning = QLabel(
+            "O áudio apresentou falhas. Em Configurações, aumente o buffer para 1024 amostras "
+            "e confira se o microfone e os fones selecionados estão corretos."
+        )
+        self.lbl_audio_warning.setWordWrap(True)
+        self.lbl_audio_warning.setStyleSheet("color: #ffcc80; font-weight: bold;")
+        self.lbl_audio_warning.setVisible(False)
+        main_layout.addWidget(self.lbl_audio_warning)
 
         # -------------------------------------------------------------
         # 2. BARRA DE CONTROLE MASTER E PRESETS
@@ -519,6 +529,20 @@ class TabVocal(QWidget):
         previous_mon1 = self.engine.monitor1_device_id
         previous_mon2 = self.engine.monitor2_device_id
 
+        # Prefer the operating system's actual defaults over the first item in
+        # PortAudio's list, which can be a different device or host API.
+        if not self._devices_loaded:
+            default_input = find_default_input()
+            default_output = find_default_output()
+            if previous_input is None and default_input:
+                previous_input = default_input["id"]
+            if previous_mon1 is None and default_output:
+                default_id = default_output["id"]
+                if any(device["id"] == default_id and not device["is_virtual"] for device in outputs):
+                    previous_mon1 = default_id
+            if previous_mon1 is None:
+                previous_mon1 = next((device["id"] for device in outputs if not device["is_virtual"]), None)
+
         self.combo_input.blockSignals(True)
         self.combo_virtual.blockSignals(True)
         self.combo_mon1.blockSignals(True)
@@ -648,6 +672,18 @@ class TabVocal(QWidget):
 
     def _update_meters(self):
         running = self.engine.is_running
+        active = []
+        if self.engine.virtual_device_id is not None:
+            active.append(("virtual", self.engine.buf_virtual))
+        if self.engine.monitor1_enabled and self.engine.monitor1_device_id is not None:
+            active.append(("mon1", self.engine.buf_mon1))
+        if self.engine.monitor2_enabled and self.engine.monitor2_device_id is not None:
+            active.append(("mon2", self.engine.buf_mon2))
+        failures = self.engine.input_overflows + sum(
+            self.engine.output_underflows[name] + buffer.underrun_frames + buffer.overrun_frames
+            for name, buffer in active
+        )
+        self.lbl_audio_warning.setVisible(running and failures >= 3)
         if running != self._displayed_running:
             self._displayed_running = running
             self.btn_live.setText("■  Parar voz ao vivo" if running

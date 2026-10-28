@@ -5,6 +5,39 @@ Cria ambiência de estúdio rica, desde sala pequena até espaço amplo e atmosf
 
 import numpy as np
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        return lambda fn: fn
+
+
+@njit(fastmath=True)
+def _reverb_block(mono, feedback, damp, comb_buf, comb_sizes, comb_pos,
+                  comb_stores, ap_buf, ap_sizes, ap_pos):
+    wet = np.zeros((len(mono), 2), dtype=np.float32)
+    for i in range(len(mono)):
+        inp = mono[i] * 0.015
+        for ch in range(2):
+            value = 0.0
+            for j in range(comb_sizes.shape[1]):
+                pos = comb_pos[ch, j]
+                out = comb_buf[ch, j, pos]
+                store = out * (1.0 - damp) + comb_stores[ch, j] * damp
+                comb_stores[ch, j] = store
+                comb_buf[ch, j, pos] = inp + store * feedback
+                comb_pos[ch, j] = (pos + 1) % comb_sizes[ch, j]
+                value += out
+            for j in range(ap_sizes.shape[1]):
+                pos = ap_pos[ch, j]
+                stored = ap_buf[ch, j, pos]
+                next_value = -value + stored
+                ap_buf[ch, j, pos] = value + stored * 0.5
+                ap_pos[ch, j] = (pos + 1) % ap_sizes[ch, j]
+                value = next_value
+            wet[i, ch] = value
+    return wet
+
 # Atrasos base dos filtros comb e all-pass (ajustados para 44.1k/48k)
 COMB_TUNINGS = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617]
 ALLPASS_TUNINGS = [556, 441, 341, 225]
@@ -51,13 +84,16 @@ class Reverb:
         # Escala de acordo com a taxa de amostragem
         scale = sample_rate / 44100.0
 
-        # Filtros Comb Canal Esquerdo e Direito
-        self.combs_l = [CombFilter(int(t * scale)) for t in COMB_TUNINGS]
-        self.combs_r = [CombFilter(int((t + STEREO_SPREAD) * scale)) for t in COMB_TUNINGS]
-
-        # Filtros All-Pass Canal Esquerdo e Direito
-        self.allpasses_l = [AllpassFilter(int(t * scale)) for t in ALLPASS_TUNINGS]
-        self.allpasses_r = [AllpassFilter(int((t + STEREO_SPREAD) * scale)) for t in ALLPASS_TUNINGS]
+        # Contiguous buffers let the native DSP kernel process all filters per block.
+        self._comb_sizes = np.array([[int(t * scale) for t in COMB_TUNINGS],
+            [int((t + STEREO_SPREAD) * scale) for t in COMB_TUNINGS]], dtype=np.int64)
+        self._ap_sizes = np.array([[int(t * scale) for t in ALLPASS_TUNINGS],
+            [int((t + STEREO_SPREAD) * scale) for t in ALLPASS_TUNINGS]], dtype=np.int64)
+        self._comb_buf = np.zeros((2, len(COMB_TUNINGS), self._comb_sizes.max()), dtype=np.float32)
+        self._ap_buf = np.zeros((2, len(ALLPASS_TUNINGS), self._ap_sizes.max()), dtype=np.float32)
+        self._comb_pos = np.zeros_like(self._comb_sizes)
+        self._ap_pos = np.zeros_like(self._ap_sizes)
+        self._comb_stores = np.zeros(self._comb_sizes.shape, dtype=np.float64)
 
     def set_params(self, room_size: float = None, damping: float = None,
                    dry_wet: float = None, width: float = None, enabled: bool = None):
@@ -87,28 +123,10 @@ class Reverb:
         feedback = 0.7 + (self.room_size * 0.28)
         damp = self.damping
 
-        wet_l = np.zeros(frames, dtype=np.float32)
-        wet_r = np.zeros(frames, dtype=np.float32)
-
-        for i in range(frames):
-            inp = in_mono[i] * 0.015
-
-            # Acumula combs
-            out_l = 0.0
-            out_r = 0.0
-            for comb in self.combs_l:
-                out_l += comb.process(inp, feedback, damp)
-            for comb in self.combs_r:
-                out_r += comb.process(inp, feedback, damp)
-
-            # Difusão por all-passes
-            for ap in self.allpasses_l:
-                out_l = ap.process(out_l)
-            for ap in self.allpasses_r:
-                out_r = ap.process(out_r)
-
-            wet_l[i] = out_l
-            wet_r[i] = out_r
+        wet = _reverb_block(np.ascontiguousarray(in_mono, dtype=np.float32), feedback, damp,
+                            self._comb_buf, self._comb_sizes, self._comb_pos, self._comb_stores,
+                            self._ap_buf, self._ap_sizes, self._ap_pos)
+        wet_l, wet_r = wet[:, 0], wet[:, 1]
 
         # Mix estéreo com controle de largura
         wet1 = self.dry_wet * (self.width / 2.0 + 0.5)
@@ -125,3 +143,10 @@ class Reverb:
         if audio.ndim == 1:
             return np.mean(out_stereo, axis=1)
         return out_stereo
+
+    def warm_up(self):
+        """Compile the DSP kernel without changing the live reverb state."""
+        _reverb_block(np.zeros(1, dtype=np.float32), 0.8, self.damping,
+                      self._comb_buf.copy(), self._comb_sizes, self._comb_pos.copy(),
+                      self._comb_stores.copy(), self._ap_buf.copy(), self._ap_sizes,
+                      self._ap_pos.copy())
