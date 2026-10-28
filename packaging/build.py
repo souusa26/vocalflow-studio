@@ -1,0 +1,57 @@
+"""
+Script de Automação de Build e Empacotamento Portátil do VocalFlow Studio.
+Gera a compilação standalone com PyInstaller e empacota em arquivo ZIP portátil.
+"""
+
+import os
+import sys
+import shutil
+import subprocess
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DIST_DIR = ROOT_DIR / "dist"
+BUILD_DIR = ROOT_DIR / "build"
+PORTABLE_ZIP = ROOT_DIR / "dist" / "VocalFlowStudio_Portatil_v1.0.0.zip"
+
+def build():
+    print("[Build] Limpando diretórios anteriores...")
+    if DIST_DIR.exists():
+        shutil.rmtree(DIST_DIR)
+    if BUILD_DIR.exists():
+        shutil.rmtree(BUILD_DIR)
+
+    spec_file = ROOT_DIR / "packaging" / "VocalFlowStudio.spec"
+    print(f"[Build] Executando PyInstaller com {spec_file.name}...")
+
+    cmd = [sys.executable, "-m", "PyInstaller", str(spec_file), "--noconfirm"]
+    result = subprocess.run(cmd, cwd=str(ROOT_DIR))
+
+    if result.returncode != 0:
+        print("[Build] ERRO: Falha ao compilar com PyInstaller.")
+        sys.exit(result.returncode)
+
+    target_app_dir = DIST_DIR / "VocalFlowStudio"
+    if not target_app_dir.exists():
+        print("[Build] ERRO: Diretório gerado não encontrado.")
+        sys.exit(1)
+
+    # Marca para modo portátil automático criando portable.txt
+    (target_app_dir / "portable.txt").write_text("VocalFlowStudio Portable Mode\n", encoding="utf-8")
+
+    # Copia README e manuais
+    shutil.copy(ROOT_DIR / "README.md", target_app_dir / "LEIAME.txt")
+    if (ROOT_DIR / "docs" / "GUIA_INSTALACAO.md").exists():
+        shutil.copy(ROOT_DIR / "docs" / "GUIA_INSTALACAO.md", target_app_dir / "GUIA_INSTALACAO.txt")
+
+    print("[Build] Gerando arquivo ZIP portátil...")
+    shutil.make_archive(str(DIST_DIR / "VocalFlowStudio_Portatil_v1.0.0"), "zip", target_app_dir)
+
+    print("\n" + "=" * 60)
+    print("✅ BUILD CONCLUÍDO COM SUCESSO!")
+    print(f"📦 Pasta Standalone: {target_app_dir}")
+    print(f"📦 Pacote Portátil: {PORTABLE_ZIP}")
+    print("=" * 60)
+
+if __name__ == "__main__":
+    build()
