@@ -21,7 +21,7 @@ def test_only_portable_zip_includes_mode_marker(tmp_path, monkeypatch):
     monkeypatch.setattr(build.subprocess, "run", compile_app)
     build.build()
     assert not (tmp_path / "dist" / "VocalFlowStudio" / "portable.txt").exists()
-    with zipfile.ZipFile(tmp_path / "dist" / "VocalFlowStudio_Portatil_v1.1.0.zip") as archive:
+    with zipfile.ZipFile(tmp_path / "dist" / "VocalFlowStudio_Portatil_v1.1.1.zip") as archive:
         assert "portable.txt" in archive.namelist()
 
 

@@ -14,10 +14,15 @@ except ImportError:
 
 
 @njit(fastmath=True)
-def _shift_block(audio, ratio, memory, write_pos, phase, window):
+def _shift_block(audio, ratio, memory, write_pos, phase, window, target_window):
     out = np.zeros_like(audio)
     capacity = len(memory)
     for i in range(len(audio)):
+        # A window change moves the read heads.  Slew it sample by sample so
+        # vibrato or a new YIN estimate cannot jump to a distant audio sample
+        # at a callback boundary and create a loud click.
+        delta = target_window - window
+        window += min(0.1, max(-0.1, delta))
         memory[write_pos] = audio[i]
         phase2 = (phase + 0.5) % 1.0
         weight = math.sin(math.pi * phase) ** 2
@@ -35,7 +40,7 @@ def _shift_block(audio, ratio, memory, write_pos, phase, window):
             out[i, channel] = sample
         phase = (phase + (1.0 - ratio) / window) % 1.0
         write_pos = (write_pos + 1) % capacity
-    return out, write_pos, phase
+    return out, write_pos, phase, window
 
 
 class StreamingPitchShifter:
@@ -45,6 +50,7 @@ class StreamingPitchShifter:
         self.write_pos = 0
         self.phase = 0.25
         self.grain_window = float(self.window)
+        self.target_window = float(self.window)
 
     def process(self, audio, ratio, period=None):
         audio = np.asarray(audio, dtype=np.float32)
@@ -54,11 +60,13 @@ class StreamingPitchShifter:
         if period is not None:
             # Align the heads to whole pitch periods to suppress modulation sidebands.
             periods = max(2, 2 * int(self.window / (2 * period)))
-            self.grain_window = min(float(self.window), periods * period)
-        out, self.write_pos, self.phase = _shift_block(
-            stereo, ratio, self.memory, self.write_pos, self.phase, self.grain_window)
+            self.target_window = min(float(self.window), periods * period)
+        out, self.write_pos, self.phase, self.grain_window = _shift_block(
+            stereo, ratio, self.memory, self.write_pos, self.phase,
+            self.grain_window, self.target_window)
         return out[:, 0] if mono_vector else out[:, :channels]
 
     def warm_up(self):
         _shift_block(np.zeros((1, 2), dtype=np.float32), 1.0,
-                     self.memory.copy(), 0, 0.25, self.grain_window)
+                     self.memory.copy(), 0, 0.25, self.grain_window,
+                     self.target_window)

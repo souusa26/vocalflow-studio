@@ -5,6 +5,28 @@ Delay estéreo estilo fita com filtro passa-baixas no feedback e controle de rep
 
 import numpy as np
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        return lambda fn: fn
+
+
+@njit(fastmath=True)
+def _delay_block(audio, buf, w_pos, delay_l, delay_r, feedback, damp, last_fb):
+    frames = len(audio)
+    capacity = len(buf)
+    wet = np.zeros((frames, 2), dtype=np.float32)
+    for i in range(frames):
+        for ch in range(2):
+            delay = delay_l if ch == 0 else delay_r
+            tap = buf[(w_pos - delay) % capacity, ch]
+            wet[i, ch] = tap
+            last_fb[ch] = (1.0 - damp) * tap * feedback + damp * last_fb[ch]
+            buf[w_pos, ch] = audio[i, ch] + last_fb[ch]
+        w_pos = (w_pos + 1) % capacity
+    return wet, w_pos
+
 class Delay:
     def __init__(self, sample_rate: int = 48000, max_delay_seconds: float = 2.0):
         self.sample_rate = sample_rate
@@ -51,40 +73,10 @@ class Delay:
         delay_samples_l = min(self.max_frames - 1, max(1, delay_samples_l))
         delay_samples_r = min(self.max_frames - 1, max(1, delay_samples_r))
 
-        out_wet = np.zeros((frames, 2), dtype=np.float32)
-        w_pos = self.write_pos
-        buf = self.buffer
-        fb = self.feedback
-        damp = self.damping
-        last_fb = self._last_feedback_sample
-
-        for i in range(frames):
-            # Índices de leitura nos buffers de atraso
-            read_pos_l = (w_pos - delay_samples_l) % self.max_frames
-            read_pos_r = (w_pos - delay_samples_r) % self.max_frames
-
-            tap_l = buf[read_pos_l, 0]
-            tap_r = buf[read_pos_r, 1]
-
-            out_wet[i, 0] = tap_l
-            out_wet[i, 1] = tap_r
-
-            # Filtro de amortecimento de altas frequências nas repetições
-            fb_l = tap_l * fb
-            fb_r = tap_r * fb
-            filtered_fb_l = (1.0 - damp) * fb_l + damp * last_fb[0]
-            filtered_fb_r = (1.0 - damp) * fb_r + damp * last_fb[1]
-            last_fb[0] = filtered_fb_l
-            last_fb[1] = filtered_fb_r
-
-            # Grava no buffer a entrada combinada com o feedback
-            buf[w_pos, 0] = in_stereo[i, 0] + filtered_fb_l
-            buf[w_pos, 1] = in_stereo[i, 1] + filtered_fb_r
-
-            w_pos = (w_pos + 1) % self.max_frames
-
-        self.write_pos = w_pos
-        self._last_feedback_sample = last_fb
+        in_stereo = np.ascontiguousarray(in_stereo, dtype=np.float32)
+        out_wet, self.write_pos = _delay_block(
+            in_stereo, self.buffer, self.write_pos, delay_samples_l, delay_samples_r,
+            self.feedback, self.damping, self._last_feedback_sample)
 
         # Mistura Dry / Wet
         dry_gain = 1.0 - (self.dry_wet * 0.4)
@@ -94,3 +86,9 @@ class Delay:
         if audio.ndim == 1:
             return np.mean(mixed, axis=1)
         return mixed
+
+    def warm_up(self):
+        """Compile the DSP kernel without changing the live delay state."""
+        _delay_block(np.zeros((1, 2), dtype=np.float32),
+                     np.zeros((2, 2), dtype=np.float32), 0, 1, 1,
+                     self.feedback, self.damping, np.zeros(2, dtype=np.float32))

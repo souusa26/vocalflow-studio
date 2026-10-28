@@ -43,6 +43,22 @@ def test_pitch_shift_is_independent_of_callback_boundaries():
     np.testing.assert_allclose(outputs[0], outputs[2], atol=1e-6)
 
 
+@pytest.mark.parametrize("frequency", [100, 220, 440])
+def test_autotune_vibrato_has_no_callback_boundary_clicks(frequency):
+    rate, block = 48000, 256
+    t = np.arange(2 * rate) / rate
+    # ±2 Hz vibrato crosses the period-count threshold repeatedly; an abrupt
+    # grain-window resize used to produce loud discontinuities at block edges.
+    audio = (0.3 * np.sin(2 * np.pi *
+             (frequency * t + (2 / 5) * np.sin(2 * np.pi * 5 * t)))).astype(np.float32)
+    tune = AutoTune(rate)
+    tune.warm_up()
+    out = np.concatenate([tune.process(audio[i:i + block])
+                          for i in range(0, len(audio), block)])
+    edges = np.abs(np.diff(out))[np.arange(block - 1, len(out) - 1, block)]
+    assert np.max(edges) < 2 * 0.3 * 2 * np.pi * frequency / rate + 0.015
+
+
 def test_autotune_zero_amount_is_exact_bypass():
     tune = AutoTune()
     tune.amount = 0

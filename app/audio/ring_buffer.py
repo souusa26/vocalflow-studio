@@ -16,6 +16,9 @@ class AudioRingBuffer:
         self._available = 0
         self.overrun_frames = 0
         self.underrun_frames = 0
+        self._output_primed = False
+        self._output_phase = 0.0
+        self._last_output = np.zeros(channels, dtype=np.float32)
         self.lock = threading.Lock()
 
     def write(self, data: np.ndarray) -> int:
@@ -95,10 +98,73 @@ class AudioRingBuffer:
         with self.lock:
             return self._available
 
+    def read_for_output(self, frames_to_read: int, target_frames: int) -> np.ndarray:
+        """Read a continuous stream with a small prebuffer and clock-drift correction.
+
+        Each physical/virtual device has its own clock. A gradual change of read
+        rate keeps its queue near the target instead of periodically dropping an
+        entire block or playing silence. This is a bounded linear resampler, not
+        a replacement for a proper hardware synchronized stream.
+        """
+        out = np.zeros((frames_to_read, self.channels), dtype=np.float32)
+        if frames_to_read <= 0:
+            return out
+        with self.lock:
+            target = max(frames_to_read + 2, min(target_frames, self.capacity - 1))
+            newly_primed = False
+            if not self._output_primed:
+                if self._available < target:
+                    return out
+                self._output_primed = True
+                newly_primed = True
+
+            # Bound pitch variation while absorbing small hardware clock drift.
+            error = (self._available - target) / max(target, 1)
+            rate = 1.0 + float(np.clip(error * 0.02, -0.003, 0.003))
+            positions = self._output_phase + np.arange(frames_to_read) * rate
+            indices = positions.astype(np.int64)
+            # Linear interpolation needs the frame following the last position.
+            readable = int(np.searchsorted(indices, self._available - 1, side="left"))
+            count = min(frames_to_read, readable)
+            if count:
+                offsets = indices[:count]
+                fraction = (positions[:count] - offsets).astype(np.float32)[:, None]
+                a = self.buffer[(self.read_pos + offsets) % self.capacity]
+                b = self.buffer[(self.read_pos + offsets + 1) % self.capacity]
+                out[:count] = a + (b - a) * fraction
+                advance = self._output_phase + count * rate
+                consumed = int(advance)
+                self._output_phase = advance - consumed
+                self.read_pos = (self.read_pos + consumed) % self.capacity
+                self._available -= consumed
+
+            if newly_primed and count:
+                fade = min(count, 64)
+                out[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)[:, None]
+
+            if count < frames_to_read:
+                # Fade to silence on a genuine underrun, then prebuffer again.
+                self.underrun_frames += frames_to_read - count
+                fade = min(count, 64)
+                if fade:
+                    out[count - fade:count] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)[:, None]
+                else:
+                    fade = min(frames_to_read, 64)
+                    out[:fade] = self._last_output * np.linspace(1.0, 0.0, fade, dtype=np.float32)[:, None]
+                self.read_pos = self.write_pos
+                self._available = 0
+                self._output_phase = 0.0
+                self._output_primed = False
+            self._last_output = out[-1].copy()
+        return out
+
     def clear(self):
         with self.lock:
             self.write_pos = 0
             self.read_pos = 0
             self._available = 0
             self.overrun_frames = self.underrun_frames = 0
+            self._output_primed = False
+            self._output_phase = 0.0
+            self._last_output.fill(0)
             self.buffer.fill(0)

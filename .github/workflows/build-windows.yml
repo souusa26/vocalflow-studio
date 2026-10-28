@@ -55,29 +55,29 @@ jobs:
       with:
         name: VocalFlowStudio-Windows-Binaries
         path: |
-          dist_installer/VocalFlowStudio_Instalador_v1.1.0.exe
-          dist/VocalFlowStudio_Portatil_v1.1.0.zip
+          dist_installer/VocalFlowStudio_Instalador_v1.1.1.exe
+          dist/VocalFlowStudio_Portatil_v1.1.1.zip
 
     - name: Criar Release no GitHub
-      if: github.ref == 'refs/tags/v1.1.0' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v1.1.0]'))
+      if: github.ref == 'refs/tags/v1.1.1' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v1.1.1]'))
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v1.1.0
-        name: "VocalFlow Studio v1.1.0 (Windows Installer & Portátil)"
+        tag_name: v1.1.1
+        name: "VocalFlow Studio v1.1.1 (Windows Installer & Portátil)"
         body: |
-          ## 🎙️ VocalFlow Studio v1.1.0 para Windows
+          ## 🎙️ VocalFlow Studio v1.1.1 para Windows
 
-          Interface reorganizada, melhorias de áudio e autotune, salvamento seguro de letras e correções de reprodução e instalação. A latência e a qualidade vocal ainda dependem do equipamento e dos drivers.
+          Correções para reduzir cortes e estalos no monitoramento, otimização do processamento de áudio e buffer mais estável por padrão. O desempenho depende dos dispositivos e drivers de áudio.
 
           ### 🚀 Opções de Instalação (Sem precisar de terminal ou Python):
-          - **Instalador Oficial:** Baixe `VocalFlowStudio_Instalador_v1.1.0.exe`, dê dois cliques e siga o assistente ("Avançar, Avançar, Concluir").
-          - **Versão Portátil:** Baixe `VocalFlowStudio_Portatil_v1.1.0.zip`, extraia a pasta e execute direto o `VocalFlowStudio.exe`.
+          - **Instalador Oficial:** Baixe `VocalFlowStudio_Instalador_v1.1.1.exe`, dê dois cliques e siga o assistente ("Avançar, Avançar, Concluir").
+          - **Versão Portátil:** Baixe `VocalFlowStudio_Portatil_v1.1.1.zip`, extraia a pasta e execute direto o `VocalFlowStudio.exe`.
 
           ### 🎧 Microfone Virtual (Discord e OBS):
           Para usar no Discord ou OBS Studio, baixe o [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) gratuito.
         files: |
-          dist_installer/VocalFlowStudio_Instalador_v1.1.0.exe
-          dist/VocalFlowStudio_Portatil_v1.1.0.zip
+          dist_installer/VocalFlowStudio_Instalador_v1.1.1.exe
+          dist/VocalFlowStudio_Portatil_v1.1.1.zip
         draft: false
         prerelease: false
       env:

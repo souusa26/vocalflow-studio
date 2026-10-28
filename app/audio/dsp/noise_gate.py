@@ -5,6 +5,28 @@ Corta ruídos de fundo, ar-condicionado e respirações indesejadas antes da afi
 
 import numpy as np
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        return lambda func: func
+
+
+@njit()
+def _gate_envelope(mono, thresh, floor, attack, release, hold_samples, gain, hold):
+    envelope = np.zeros(len(mono), dtype=np.float32)
+    for i in range(len(mono)):
+        if abs(mono[i]) >= thresh:
+            gain = attack * gain + (1.0 - attack)
+            hold = hold_samples
+        elif hold > 0:
+            hold -= 1
+            gain = attack * gain + (1.0 - attack)
+        else:
+            gain = release * gain + (1.0 - release) * floor
+        envelope[i] = gain
+    return envelope, gain, hold
+
 class NoiseGate:
     def __init__(self, sample_rate: int = 48000):
         self.sample_rate = sample_rate
@@ -37,6 +59,10 @@ class NoiseGate:
         if enabled is not None:
             self.enabled = bool(enabled)
 
+    def warm_up(self):
+        _gate_envelope(np.zeros(1, dtype=np.float32), 0.01, 0.001,
+                       0.9, 0.99, 1, 1.0, 0)
+
     def process(self, audio: np.ndarray) -> np.ndarray:
         if not self.enabled or len(audio) == 0:
             return audio
@@ -47,40 +73,14 @@ class NoiseGate:
         else:
             mono = audio
 
-        frames = len(mono)
-        gain_envelope = np.zeros(frames, dtype=np.float32)
-
         thresh_linear = 10.0 ** (self.threshold_db / 20.0)
         floor_linear = 10.0 ** (self.reduction_db / 20.0)
-
-        # Coeficientes de atenuação exponencial
         attack_coef = np.exp(-1.0 / (self.sample_rate * (self.attack_ms / 1000.0)))
         release_coef = np.exp(-1.0 / (self.sample_rate * (self.release_ms / 1000.0)))
         hold_samples = int(self.sample_rate * (self.hold_ms / 1000.0))
-
-        cur_gain = self._current_gain
-        hold_count = self._hold_counter
-
-        for i in range(frames):
-            level = abs(mono[i])
-            if level >= thresh_linear:
-                # Sinal acima do limiar: abre imediatamente
-                target_gain = 1.0
-                cur_gain = attack_coef * cur_gain + (1.0 - attack_coef) * target_gain
-                hold_count = hold_samples
-            else:
-                if hold_count > 0:
-                    hold_count -= 1
-                    target_gain = 1.0
-                    cur_gain = attack_coef * cur_gain + (1.0 - attack_coef) * target_gain
-                else:
-                    target_gain = floor_linear
-                    cur_gain = release_coef * cur_gain + (1.0 - release_coef) * target_gain
-
-            gain_envelope[i] = cur_gain
-
-        self._current_gain = cur_gain
-        self._hold_counter = hold_count
+        gain_envelope, self._current_gain, self._hold_counter = _gate_envelope(
+            mono, thresh_linear, floor_linear, attack_coef, release_coef,
+            hold_samples, self._current_gain, self._hold_counter)
 
         if audio.ndim == 2:
             return audio * gain_envelope[:, np.newaxis]

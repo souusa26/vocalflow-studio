@@ -5,6 +5,26 @@ Evita qualquer distorção digital ou estouro de volume nas saídas e Discord/OB
 
 import numpy as np
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        return lambda func: func
+
+
+@njit()
+def _limit_envelope(peaks, ceiling, release_coef, env):
+    envelope = np.ones(len(peaks), dtype=np.float32)
+    for i in range(len(peaks)):
+        p = peaks[i]
+        target = ceiling / p if p > ceiling else 1.0
+        if target < env:
+            env = target
+        else:
+            env = release_coef * env + (1.0 - release_coef) * target
+        envelope[i] = env
+    return envelope, env
+
 class LimiterAndMeter:
     def __init__(self, sample_rate: int = 48000):
         self.sample_rate = sample_rate
@@ -34,6 +54,9 @@ class LimiterAndMeter:
 
         return peak_db, rms_db, clipped
 
+    def warm_up(self):
+        _limit_envelope(np.zeros(1, dtype=np.float32), 0.96, 0.99, 1.0)
+
     def process(self, audio: np.ndarray) -> np.ndarray:
         if len(audio) == 0:
             return audio
@@ -51,26 +74,8 @@ class LimiterAndMeter:
         else:
             peaks = np.abs(audio)
 
-        frames = len(peaks)
-        gain_envelope = np.ones(frames, dtype=np.float32)
-        env = self._envelope
-
-        for i in range(frames):
-            p = peaks[i]
-            if p > ceiling_linear:
-                target_gain = ceiling_linear / p
-            else:
-                target_gain = 1.0
-
-            if target_gain < env:
-                # Ataque ultrarrápido instantâneo
-                env = target_gain
-            else:
-                env = release_coef * env + (1.0 - release_coef) * target_gain
-
-            gain_envelope[i] = env
-
-        self._envelope = env
+        gain_envelope, self._envelope = _limit_envelope(
+            peaks, ceiling_linear, release_coef, self._envelope)
 
         # Aplica atenuação e saturação analógica tanh para picos extremos
         limited = audio * (gain_envelope[:, np.newaxis] if is_stereo else gain_envelope)

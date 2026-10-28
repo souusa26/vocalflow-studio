@@ -16,11 +16,13 @@ from app.audio.dsp.limiter import LimiterAndMeter
 from app.stems.player import StemPlayer
 
 class AudioEngine:
-    def __init__(self, sample_rate: int = 48000, block_size: int = 256):
+    def __init__(self, sample_rate: int = 48000, block_size: int = 512):
         self.sample_rate = sample_rate
         self.block_size = block_size
         self.is_running = False
         self.last_error = None
+        self.input_overflows = 0
+        self.output_underflows = {"virtual": 0, "mon1": 0, "mon2": 0}
 
         # DSP e Reprodutor de Stems
         self.fx_chain = VocalFXChain(sample_rate)
@@ -71,6 +73,8 @@ class AudioEngine:
                (self._stream_input, self._stream_virtual, self._stream_mon1, self._stream_mon2)):
             self.stop()
         self.last_error = None
+        self.input_overflows = 0
+        self.output_underflows = {"virtual": 0, "mon1": 0, "mon2": 0}
         self.buf_virtual.clear()
         self.buf_mon1.clear()
         self.buf_mon2.clear()
@@ -84,7 +88,10 @@ class AudioEngine:
             ]
             if not any(device is not None for _, device, _ in destinations):
                 raise ValueError("Selecione uma saída virtual ou um monitor de áudio.")
-            self.fx_chain.autotune.warm_up()
+            # JIT compilation must complete on the UI thread, before callbacks start.
+            self.fx_chain.warm_up()
+            for limiter in self.output_limiters.values():
+                limiter.warm_up()
             self._stream_input = sd.InputStream(
                 device=self.input_device_id, channels=1, samplerate=self.sample_rate,
                 blocksize=self.block_size, callback=self._input_callback, dtype="float32")
@@ -152,6 +159,8 @@ class AudioEngine:
         self.buf_mon2.clear()
 
     def _input_callback(self, indata, frames, time_info, status):
+        if status and getattr(status, "input_overflow", False):
+            self.input_overflows += 1
         try:
             self._process_input(indata, frames)
         except Exception as exc:
@@ -165,24 +174,45 @@ class AudioEngine:
         if processed.ndim == 1:
             processed = np.column_stack((processed, processed))
         backing = self.stem_player.get_next_block(frames)
-        virtual = processed + backing if self.stem_player.send_to_virtual_mic else processed
-        self.buf_virtual.write(self.output_limiters["virtual"].process(virtual))
+        if self._stream_virtual is not None or not self.is_running:
+            virtual = processed + backing if self.stem_player.send_to_virtual_mic else processed
+            self.buf_virtual.write(self.output_limiters["virtual"].process(virtual))
         monitor = processed + backing if self.stem_player.send_to_monitors else processed
-        if self.monitor1_enabled:
+        if self.monitor1_enabled and (self._stream_mon1 is not None or not self.is_running):
             self.buf_mon1.write(self.output_limiters["mon1"].process(monitor * self.monitor1_volume))
-        if self.monitor2_enabled:
+        if self.monitor2_enabled and (self._stream_mon2 is not None or not self.is_running):
             self.buf_mon2.write(self.output_limiters["mon2"].process(monitor * self.monitor2_volume))
 
+    def get_diagnostics(self):
+        """Snapshot callback and buffer problems for troubleshooting."""
+        results = {"input_overflows": self.input_overflows, "outputs": {}}
+        for name, buffer in (("virtual", self.buf_virtual), ("mon1", self.buf_mon1),
+                             ("mon2", self.buf_mon2)):
+            with buffer.lock:
+                results["outputs"][name] = {
+                    "device_underflows": self.output_underflows[name],
+                    "buffer_underrun_frames": buffer.underrun_frames,
+                    "buffer_overrun_frames": buffer.overrun_frames,
+                    "buffered_frames": buffer._available,
+                }
+        return results
+
     def _virtual_callback(self, outdata, frames, time_info, status):
-        chunk = self.buf_virtual.read(frames)
+        if status and getattr(status, "output_underflow", False):
+            self.output_underflows["virtual"] += 1
+        chunk = self.buf_virtual.read_for_output(frames, 3 * self.block_size)
         outdata[:] = chunk
 
     def _mon1_callback(self, outdata, frames, time_info, status):
-        chunk = self.buf_mon1.read(frames)
+        if status and getattr(status, "output_underflow", False):
+            self.output_underflows["mon1"] += 1
+        chunk = self.buf_mon1.read_for_output(frames, 3 * self.block_size)
         outdata[:] = chunk
 
     def _mon2_callback(self, outdata, frames, time_info, status):
-        chunk = self.buf_mon2.read(frames)
+        if status and getattr(status, "output_underflow", False):
+            self.output_underflows["mon2"] += 1
+        chunk = self.buf_mon2.read_for_output(frames, 3 * self.block_size)
         outdata[:] = chunk
 
     def set_monitor1(self, enabled: bool, volume: Optional[float] = None, device_id: Optional[int] = None):

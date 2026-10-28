@@ -4,6 +4,33 @@ Controla picos repentinos, proporciona consistência e 'punch' moderno para Hip-
 """
 
 import numpy as np
+import math
+
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        return lambda func: func
+
+
+@njit()
+def _compress_envelope(mono, attack, release, makeup, threshold, knee, ratio, env):
+    envelope = np.zeros(len(mono), dtype=np.float32)
+    max_gr = 0.0
+    for i in range(len(mono)):
+        level = mono[i]
+        coef = attack if level > env else release
+        env = coef * env + (1.0 - coef) * level
+        level_db = 20.0 * math.log10(max(env, 1e-6))
+        gr = 0.0
+        if level_db > threshold + knee / 2.0:
+            gr = (level_db - threshold) * (1.0 - 1.0 / ratio)
+        elif level_db > threshold - knee / 2.0:
+            diff = level_db - threshold + knee / 2.0
+            gr = diff * diff / (2.0 * knee) * (1.0 - 1.0 / ratio)
+        max_gr = max(max_gr, gr)
+        envelope[i] = (10.0 ** (-gr / 20.0)) * makeup
+    return envelope, env, max_gr
 
 class Compressor:
     def __init__(self, sample_rate: int = 48000):
@@ -42,6 +69,10 @@ class Compressor:
         """Retorna a redução de ganho atual para exibição na interface visual."""
         return self._current_gain_reduction_db
 
+    def warm_up(self):
+        _compress_envelope(np.zeros(1, dtype=np.float32), 0.9, 0.99, 1.0,
+                           -18.0, 4.0, 4.0, 0.0)
+
     def process(self, audio: np.ndarray) -> np.ndarray:
         if not self.enabled or len(audio) == 0:
             self._current_gain_reduction_db = 0.0
@@ -53,44 +84,12 @@ class Compressor:
         else:
             mono = np.abs(audio)
 
-        frames = len(mono)
-        gain_envelope = np.zeros(frames, dtype=np.float32)
-
         attack_coef = np.exp(-1.0 / (self.sample_rate * (self.attack_ms / 1000.0)))
         release_coef = np.exp(-1.0 / (self.sample_rate * (self.release_ms / 1000.0)))
         makeup_linear = 10.0 ** (self.makeup_gain_db / 20.0)
-
-        env = self._envelope
-        max_gr_db = 0.0
-
-        for i in range(frames):
-            level = mono[i]
-            # Detector de envelope balístico
-            if level > env:
-                env = attack_coef * env + (1.0 - attack_coef) * level
-            else:
-                env = release_coef * env + (1.0 - release_coef) * level
-
-            # Nível em dB
-            level_db = 20.0 * np.log10(max(env, 1e-6))
-
-            # Curva de ganho com soft-knee
-            gr_db = 0.0
-            if level_db > (self.threshold_db + self.knee_db / 2.0):
-                gr_db = (level_db - self.threshold_db) * (1.0 - 1.0 / self.ratio)
-            elif level_db > (self.threshold_db - self.knee_db / 2.0):
-                diff = level_db - self.threshold_db + self.knee_db / 2.0
-                gr_db = (diff * diff / (2.0 * self.knee_db)) * (1.0 - 1.0 / self.ratio)
-
-            if gr_db > max_gr_db:
-                max_gr_db = gr_db
-
-            # Ganho linear a aplicar
-            linear_gain = (10.0 ** (-gr_db / 20.0)) * makeup_linear
-            gain_envelope[i] = linear_gain
-
-        self._envelope = env
-        self._current_gain_reduction_db = max_gr_db
+        gain_envelope, self._envelope, self._current_gain_reduction_db = _compress_envelope(
+            mono, attack_coef, release_coef, makeup_linear, self.threshold_db,
+            self.knee_db, self.ratio, self._envelope)
 
         if is_stereo:
             return audio * gain_envelope[:, np.newaxis]
