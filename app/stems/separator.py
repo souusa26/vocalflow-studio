@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional, Callable
 import numpy as np
 import scipy.signal
+import scipy.ndimage
 import soundfile as sf
 
 from app.config import get_stems_dir, get_models_dir
@@ -30,6 +31,8 @@ class SeparationEngine:
 
     def is_demucs_available(self) -> bool:
         """Verifica se a biblioteca Demucs e PyTorch estão instaladas no ambiente."""
+        if getattr(sys, "frozen", False):
+            return False
         try:
             import demucs
             import torch
@@ -236,13 +239,17 @@ class SeparationEngine:
                 progress_cb(30, "Processando tensores neurais (separação profunda)...")
 
             import subprocess
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
             
             while proc.poll() is None:
                 if self.is_cancelled:
                     proc.kill()
+                    proc.wait()
                     raise InterruptedError("Operação cancelada pelo usuário.")
                 time.sleep(0.5)
+
+            if proc.returncode != 0:
+                raise RuntimeError(f"Demucs encerrou com código {proc.returncode}.")
 
             # Localiza os stems gerados
             demucs_stem_dir = output_folder.parent / DEMUCS_MODEL_NAME / audio_path.stem
@@ -267,6 +274,8 @@ class SeparationEngine:
                 progress_cb(100, "Separação neural Demucs concluída!")
             return paths
 
+        except InterruptedError:
+            raise
         except Exception as e:
             if progress_cb:
                 progress_cb(20, "Modelo neural Demucs não disponível. Usando motor nativo espectral...")

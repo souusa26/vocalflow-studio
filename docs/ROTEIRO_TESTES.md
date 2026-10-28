@@ -4,24 +4,11 @@ Este documento consolida os resultados dos testes automatizados e estabelece o r
 
 ---
 
-## 1. Testes Automatizados Executados no Ambiente de Desenvolvimento
+## 1. Testes automatizados
 
-Foi executada uma suíte completa de testes com **29 testes unitários e de integração**, cobrindo 100% dos componentes de lógica, algoritmos DSP, roteamento e persistência:
+Execute `python -m pytest -q` com as dependências de `requirements.txt`. A suíte inclui os testes originais e regressões para formato do microfone, frequência de saída do autotune em streaming, continuidade entre blocos, buffers cheios, limite final de mixagem, reamostragem, autosave na interface e separação dos modos instalado e portátil.
 
-| Módulo de Teste | Itens Testados | Status |
-| :--- | :--- | :---: |
-| `tests/test_dsp.py` | Noise Gate, Autotune (YIN + Numba), Equalizador Biquad, Compressor Dinâmico, Delay, Reverb, Limiter Brickwall e Pipeline Completo | **APROVADO (9/9)** |
-| `tests/test_presets.py` | Inicialização de fábrica, salvamento, carregamento, proteção contra exclusão, renomeação, importação e exportação JSON | **APROVADO (6/6)** |
-| `tests/test_lyrics.py` | Criação de letras, autosave, busca por título/conteúdo, exclusão e exportação TXT | **APROVADO (6/6)** |
-| `tests/test_stems.py` | Sincronização multi-pista, Mute/Solo, isolamento de faixas, proteção padrão de roteamento e separador nativo STFT | **APROVADO (5/5)** |
-| `tests/test_routing.py` | Escrita, leitura, recuperação de underrun e comportamento de wrap-around do RingBuffer circular | **APROVADO (3/3)** |
-| **TOTAL** | **29 Testes Automatizados** | **100% SUCESSO** |
-
-Comando para reproduzir os testes:
-```bash
-cd vocalflow-studio
-PYTHONPATH=. .venv/bin/pytest tests -v
-```
+Os testes de dispositivos simulam PortAudio; os testes Qt usam a plataforma `offscreen`. Testes aprovados não representam cobertura de 100% nem substituem o roteiro de hardware abaixo. O workflow também executa a suíte e gera os pacotes Windows nos pull requests.
 
 ---
 
@@ -42,7 +29,7 @@ PYTHONPATH=. .venv/bin/pytest tests -v
 2. Abra o VocalFlow Studio e selecione o microfone em *Microfone de Entrada* e o fone em *Monitor 1*.
 3. Clique em **"INICIAR PROCESSAMENTO (AO VIVO)"**.
 4. Fale ao microfone e verifique:
-   - Se a voz chega ao fone imediatamente, sem atraso incômodo (latência < 10ms com buffer de 256 amostras).
+   - Se a voz chega ao fone imediatamente, sem atraso incômodo (medir a latência real de ponta a ponta; 256 amostras a 48 kHz são apenas 5,3 ms de um buffer, e o autotune, as filas e os drivers acrescentam atraso).
    - Se o VU meter de Entrada e Saída oscilam em tempo real acompanhando sua voz.
    - Se o LED de clip pisca em vermelho caso fale muito alto ou bata no microfone.
 
@@ -77,3 +64,10 @@ PYTHONPATH=. .venv/bin/pytest tests -v
 3. Observe o selo mudar para `● Salvando...` e logo em seguida `● Salvo`.
 4. Feche o VocalFlow Studio e abra-o novamente: confirme que a letra recém-escrita permanece salva e intacta.
 5. Clique em **Exportar (.txt)** e confirme se o arquivo de texto é criado com sucesso.
+
+### Teste 7: Regressões de uso diário
+1. Digite uma letra e troque imediatamente para outra; volte e confirme que a edição permanece. Repita fechando a janela imediatamente após digitar.
+2. Durante reprodução, altere 48 kHz para 44,1 kHz e confirme que os streams reiniciam, os efeitos mantêm parâmetros e o tom/tempo do beat permanecem corretos.
+3. Verifique que o instrumental completo está mutado ao carregar bateria/baixo/outros; confirme visualmente os controles.
+4. Inicie com uma saída indisponível e confirme que a interface informa a falha e não permanece indicando transmissão saudável.
+5. Instale como usuário comum, salve uma letra, reabra e confira os dados em `%APPDATA%/VocalFlowStudio`. Na versão ZIP, confira os dados na pasta `data` ao lado do executável.

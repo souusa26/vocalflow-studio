@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from app.config import get_lyrics_dir
+from app.storage import write_json_atomic
 
 class LyricsManager:
     def __init__(self, storage_dir: Optional[Path] = None):
@@ -97,10 +98,10 @@ class LyricsManager:
 
         path = self._get_file_path(lyric_id)
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
+            write_json_atomic(path, data)
         except Exception as e:
             print(f"[Lyrics] Erro ao salvar nova letra: {e}")
+            raise
 
         return data
 
@@ -119,8 +120,7 @@ class LyricsManager:
 
         path = self._get_file_path(lyric_id)
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
+            write_json_atomic(path, data)
             return True
         except Exception as e:
             print(f"[Lyrics] Erro ao atualizar letra {lyric_id}: {e}")

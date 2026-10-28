@@ -5,6 +5,7 @@ Configurações Globais e Gerenciamento de Caminhos (Modo Portátil vs Instalado
 import os
 import sys
 import json
+import shutil
 from pathlib import Path
 
 APP_NAME = "VocalFlowStudio"
@@ -20,11 +21,11 @@ def get_base_dir() -> Path:
 def is_portable_mode() -> bool:
     """
     Detecta se a aplicação está em modo portátil.
-    O modo portátil é ativado se existir um arquivo 'portable.txt' ou pasta 'data'
+    O modo portátil é ativado se existir um arquivo 'portable.txt'
     no mesmo diretório do executável.
     """
     base_dir = get_base_dir()
-    if (base_dir / "portable.txt").exists() or (base_dir / "data").is_dir():
+    if (base_dir / "portable.txt").exists():
         return True
     return False
 
@@ -43,6 +44,10 @@ def get_data_dir() -> Path:
         else:
             path = Path.home() / ".local" / "share" / APP_NAME
 
+    # Preserve data from older installers that accidentally enabled portable mode.
+    legacy = get_base_dir() / "data"
+    if not is_portable_mode() and getattr(sys, "frozen", False) and not path.exists() and legacy.is_dir():
+        shutil.copytree(legacy, path)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

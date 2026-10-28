@@ -5,6 +5,7 @@ Implementado com filtros Biquad IIR de fase contínua (Cookbook de Robert Bristo
 
 import numpy as np
 import math
+from scipy.signal import lfilter
 
 class BiquadFilter:
     def __init__(self):
@@ -24,17 +25,14 @@ class BiquadFilter:
         return y
 
     def process_block(self, audio: np.ndarray) -> np.ndarray:
-        if audio.ndim == 1:
-            out = np.zeros_like(audio)
-            for i in range(len(audio)):
-                out[i] = self.process_sample(audio[i], 0)
-            return out
-        else:
-            out = np.zeros_like(audio)
-            for i in range(len(audio)):
-                out[i, 0] = self.process_sample(audio[i, 0], 0)
-                out[i, 1] = self.process_sample(audio[i, 1], 1)
-            return out
+        mono = audio.ndim == 1
+        x = audio[:, None] if mono else audio
+        channels = x.shape[1]
+        out, state = lfilter([self.b0, self.b1, self.b2],
+                            [1.0, self.a1, self.a2], x, axis=0,
+                            zi=np.stack((self.z1[:channels], self.z2[:channels])))
+        self.z1[:channels], self.z2[:channels] = state
+        return (out[:, 0] if mono else out).astype(np.float32)
 
 class Equalizer:
     def __init__(self, sample_rate: int = 48000):

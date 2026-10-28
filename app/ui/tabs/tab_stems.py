@@ -270,8 +270,26 @@ class TabStems(QWidget):
         self.lbl_progress_status.setText(msg)
 
     def _on_worker_success(self, stems: dict):
+        if getattr(self.window(), "_waiting_for_worker", False):
+            return
         self.current_stems = stems
-        self.player.load_stems(stems)
+        try:
+            self.player.load_stems(stems)
+        except Exception as exc:
+            self._on_worker_error(f"Não foi possível carregar as faixas: {exc}")
+            return
+        for name, strip in self.stem_strips.items():
+            track = self.player.tracks.get(name)
+            strip.btn_mute.blockSignals(True)
+            strip.btn_solo.blockSignals(True)
+            strip.slider_vol.blockSignals(True)
+            strip.btn_mute.setChecked(track.mute if track else False)
+            strip.btn_solo.setChecked(False)
+            strip.slider_vol.setValue(100)
+            strip.lbl_vol_db.setText("0.0 dB")
+            strip.btn_mute.blockSignals(False)
+            strip.btn_solo.blockSignals(False)
+            strip.slider_vol.blockSignals(False)
         self.progress_bar.setValue(100)
         self.lbl_progress_status.setText("Faixas separadas prontas no mixer!")
         self.btn_start_sep.setEnabled(True)
@@ -280,6 +298,8 @@ class TabStems(QWidget):
         QMessageBox.information(self, "Separação Concluída", "Faixas de stems geradas e carregadas no reprodutor com sucesso!")
 
     def _on_worker_error(self, err_msg: str):
+        if getattr(self.window(), "_waiting_for_worker", False):
+            return
         self.btn_start_sep.setEnabled(True)
         self.btn_cancel_sep.setEnabled(False)
         self.btn_select_file.setEnabled(True)
@@ -293,7 +313,12 @@ class TabStems(QWidget):
         if not self.player.tracks:
             QMessageBox.information(self, "Aviso", "Separe ou carregue uma música primeiro.")
             return
-        self.player.play()
+        try:
+            if not self.engine.is_running:
+                self.engine.start()
+            self.player.play()
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Reprodução", str(exc))
 
     def _stop_stems(self):
         self.player.stop()

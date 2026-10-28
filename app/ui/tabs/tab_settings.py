@@ -6,7 +6,7 @@ Explica a instalação do VB-Audio Virtual Cable, configuração no Discord/OBS 
 import webbrowser
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QComboBox, QGroupBox, QTextBrowser, QFrame
+    QComboBox, QGroupBox, QTextBrowser, QFrame, QMessageBox
 )
 from PyQt6.QtCore import Qt
 
@@ -57,6 +57,7 @@ class TabSettings(QWidget):
         self.lbl_latency_info.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 12px;")
         buffer_layout.addWidget(self.lbl_latency_info, 2, 0, 1, 2)
 
+        self._show_latency()
         layout.addWidget(buffer_group)
 
         # -------------------------------------------------------------
@@ -155,18 +156,22 @@ class TabSettings(QWidget):
             self.lbl_vc_status.setText("⚠️ Nenhum cabo virtual detectado no Windows.")
             self.lbl_vc_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
 
+    def _show_latency(self):
+        ms = self.engine.block_size / self.engine.sample_rate * 1000.0
+        self.lbl_latency_info.setText(
+            f"Buffer: {ms:.1f} ms ({self.engine.block_size} amostras, {self.engine.sample_rate} Hz). "
+            "Autotune: janela de 40 ms; drivers e filas acrescentam atraso.")
+
     def _on_buffer_changed(self, idx: int):
-        sizes = [128, 256, 512, 1024]
-        size = sizes[idx]
-        self.engine.block_size = size
-        ms = (size / float(self.engine.sample_rate)) * 1000.0
-        self.lbl_latency_info.setText(f"⏱️ Latência Teórica do Buffer: ~{ms:.1f} ms ({size} amostras a {self.engine.sample_rate} Hz)")
+        try:
+            self.engine.configure(block_size=[128, 256, 512, 1024][idx])
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Configuração de áudio", str(exc))
+        self._show_latency()
 
     def _on_sr_changed(self, idx: int):
-        srs = [48000, 44100]
-        sr = srs[idx]
-        self.engine.sample_rate = sr
-        self.engine.fx_chain.set_sample_rate(sr)
-        self.engine.stem_player.target_sample_rate = sr
-        ms = (self.engine.block_size / float(sr)) * 1000.0
-        self.lbl_latency_info.setText(f"⏱️ Latência Teórica do Buffer: ~{ms:.1f} ms ({self.engine.block_size} amostras a {sr} Hz)")
+        try:
+            self.engine.configure(sample_rate=[48000, 44100][idx])
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Configuração de áudio", str(exc))
+        self._show_latency()

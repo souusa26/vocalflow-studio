@@ -3,7 +3,7 @@ Janela Principal da Aplicação (MainWindow).
 Reúne as 4 áreas principais do VocalFlow Studio em uma interface moderna e coesa.
 """
 
-from PyQt6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QStatusBar
+from PyQt6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QStatusBar, QMessageBox
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 
@@ -60,8 +60,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Para o motor de áudio e threads ao fechar a janela."""
-        if hasattr(self, "engine") and self.engine.is_running:
+        if not self.tab_lyrics.flush_pending_save():
+            QMessageBox.warning(self, "Letra não salva",
+                "Não foi possível salvar a letra. A janela permanecerá aberta para preservar seu texto.")
+            event.ignore()
+            return
+        if hasattr(self, "engine"):
             self.engine.stop()
-        if hasattr(self, "tab_stems") and self.tab_stems.worker:
-            self.tab_stems.worker.cancel()
+        worker = self.tab_stems.worker
+        if worker and worker.isRunning():
+            if not getattr(self, "_waiting_for_worker", False):
+                self._waiting_for_worker = True
+                worker.finished.connect(self.close)
+            worker.cancel()
+            event.ignore()
+            return
         event.accept()

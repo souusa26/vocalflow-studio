@@ -23,6 +23,8 @@ class TabVocal(QWidget):
         super().__init__(parent)
         self.engine = audio_engine
         self.preset_mgr = preset_manager
+        self._reported_error = None
+        self._displayed_running = None
 
         self._init_ui()
         self._refresh_devices()
@@ -598,6 +600,7 @@ class TabVocal(QWidget):
                     }
                 """)
             except Exception as e:
+                self._reported_error = self.engine.last_error
                 QMessageBox.critical(self, "Falha de Áudio", f"Não foi possível iniciar o fluxo de áudio:\n{e}")
 
     def _restart_engine(self):
@@ -609,12 +612,25 @@ class TabVocal(QWidget):
                 print(f"[TabVocal] Erro ao reiniciar motor: {e}")
 
     def _update_meters(self):
+        running = self.engine.is_running
+        if running != self._displayed_running:
+            self._displayed_running = running
+            self.btn_live.setText("🔴 AO VIVO - TRANSMITINDO PROCESSADO" if running
+                                  else "🎙️ INICIAR PROCESSAMENTO (AO VIVO)")
+            self.btn_live.setStyleSheet("background-color: #00e676; color: #000000;" if running else "")
+        if not running and self.engine.last_error and self.engine.last_error != self._reported_error:
+            self._reported_error = self.engine.last_error
+            self.engine.stop()
+            QMessageBox.warning(self, "Falha de áudio", self._reported_error)
         if self.engine.is_running:
             p_in = self.engine.fx_chain.limiter.input_peak_db
             r_in = self.engine.fx_chain.limiter.input_rms_db
-            p_out = self.engine.fx_chain.limiter.output_peak_db
-            r_out = self.engine.fx_chain.limiter.output_rms_db
-            clip = self.engine.fx_chain.limiter.clipped
+            destination = "virtual" if self.engine.virtual_device_id is not None else (
+                "mon1" if self.engine.monitor1_enabled else "mon2")
+            meter = self.engine.output_limiters[destination]
+            p_out = meter.output_peak_db
+            r_out = meter.output_rms_db
+            clip = meter.clipped
 
             self.meter_in.set_levels(p_in, r_in, False)
             self.meter_out.set_levels(p_out, r_out, clip)

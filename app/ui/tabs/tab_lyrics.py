@@ -22,14 +22,13 @@ class TabLyrics(QWidget):
         self.active_lyric_id = None
         self._is_loading = False
 
-        self._init_ui()
-        self._refresh_list()
-
-        # Timer de debounce para Autosave (salva 600ms após a última digitação)
+        self._dirty = False
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setSingleShot(True)
         self.autosave_timer.setInterval(600)
         self.autosave_timer.timeout.connect(self._perform_autosave)
+        self._init_ui()
+        self._refresh_list()
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
@@ -149,6 +148,17 @@ class TabLyrics(QWidget):
             return
 
         lyric_id = current_item.data(Qt.ItemDataRole.UserRole)
+        if lyric_id == self.active_lyric_id:
+            return
+        if lyric_id != self.active_lyric_id and not self.flush_pending_save():
+            self.list_lyrics.blockSignals(True)
+            for index in range(self.list_lyrics.count()):
+                item = self.list_lyrics.item(index)
+                if item.data(Qt.ItemDataRole.UserRole) == self.active_lyric_id:
+                    self.list_lyrics.setCurrentItem(item)
+                    break
+            self.list_lyrics.blockSignals(False)
+            return
         data = self.lyrics_mgr.get_lyric(lyric_id)
         if not data:
             return
@@ -163,7 +173,13 @@ class TabLyrics(QWidget):
         self._is_loading = False
 
     def _create_new_lyric(self):
-        data = self.lyrics_mgr.create_lyric("Nova Letra de Rap", "")
+        if not self.flush_pending_save():
+            return
+        try:
+            data = self.lyrics_mgr.create_lyric("Nova Letra de Rap", "")
+        except OSError as exc:
+            QMessageBox.warning(self, "Letras", f"Não foi possível criar a letra: {exc}")
+            return
         self._refresh_list()
         
         # Seleciona o novo item
@@ -178,19 +194,28 @@ class TabLyrics(QWidget):
     def _on_content_changed(self):
         if self._is_loading:
             return
+        self._dirty = True
         self.lbl_autosave.setText("● Salvando...")
         self.lbl_autosave.setStyleSheet("color: #ffb300; font-weight: bold; font-size: 11px;")
         self._update_stats()
         self.autosave_timer.start()
 
+    def flush_pending_save(self):
+        self.autosave_timer.stop()
+        return self._perform_autosave() if self._dirty else True
+
     def _perform_autosave(self):
         if not self.active_lyric_id:
-            return
+            return True
 
         title = self.edit_title.text().strip() or "Sem Título"
         content = self.text_editor.toPlainText()
 
-        self.lyrics_mgr.update_lyric(self.active_lyric_id, title=title, content=content)
+        if not self.lyrics_mgr.update_lyric(self.active_lyric_id, title=title, content=content):
+            self.lbl_autosave.setText("● Falha ao salvar — mantenha esta letra aberta")
+            self.lbl_autosave.setStyleSheet("color: #ff5252; font-weight: bold;")
+            return False
+        self._dirty = False
         self.lbl_autosave.setText("● Salvo")
         self.lbl_autosave.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
 
@@ -198,6 +223,8 @@ class TabLyrics(QWidget):
         current_item = self.list_lyrics.currentItem()
         if current_item and current_item.data(Qt.ItemDataRole.UserRole) == self.active_lyric_id:
             current_item.setText(f"📝 {title}")
+
+        return True
 
     def _update_stats(self):
         text = self.text_editor.toPlainText()
@@ -215,14 +242,22 @@ class TabLyrics(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self.lyrics_mgr.delete_lyric(self.active_lyric_id)
+            if not self.lyrics_mgr.delete_lyric(self.active_lyric_id):
+                QMessageBox.warning(self, "Letras", "Não foi possível excluir a letra.")
+                return
+            self.autosave_timer.stop()
+            self._dirty = False
             self.active_lyric_id = None
             self._refresh_list()
             if self.list_lyrics.count() == 0:
+                self._is_loading = True
                 self.edit_title.clear()
                 self.text_editor.clear()
+                self._is_loading = False
 
     def _export_txt(self):
+        if not self.flush_pending_save():
+            return
         if not self.active_lyric_id:
             return
         title = self.edit_title.text().strip() or "letra"

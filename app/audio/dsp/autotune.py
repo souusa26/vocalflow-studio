@@ -1,11 +1,12 @@
 """
 Motor de Autotune e Correção de Afinação em Tempo Real para Vocais Hip-Hop.
 Utiliza algoritmo YIN/NSDF acelerado via Numba JIT para detecção de pitch e
-Pitch-Shifting por PSOLA/Resampling de fase com quantização tonal instantânea (Hard Snap) ou suave.
+Pitch-shifting granular contínuo com quantização tonal instantânea (Hard Snap) ou suave.
 """
 
 import numpy as np
 import math
+from app.audio.dsp.pitch_shift import StreamingPitchShifter
 
 try:
     from numba import njit
@@ -93,7 +94,7 @@ def detect_pitch_yin_numba(audio_block: np.ndarray, sample_rate: int, min_freq: 
     s1 = cmndf[best_tau]
     s2 = cmndf[x2]
 
-    denom = 2.0 * (2.0 * s1 - s0 - s2)
+    denom = 2.0 * (s0 - 2.0 * s1 + s2)
     if abs(denom) > 1e-6:
         delta = (s0 - s2) / denom
     else:
@@ -104,28 +105,6 @@ def detect_pitch_yin_numba(audio_block: np.ndarray, sample_rate: int, min_freq: 
         return 0.0
 
     return sample_rate / refined_tau
-
-@njit(fastmath=True)
-def pitch_shift_linear_numba(audio: np.ndarray, shift_ratio: float) -> np.ndarray:
-    """
-    Realiza o pitch shifting por interpolação linear rápida com correção de fase.
-    """
-    n = len(audio)
-    out = np.zeros(n, dtype=np.float32)
-    if shift_ratio <= 0.01:
-        return audio
-
-    for i in range(n):
-        orig_pos = i * shift_ratio
-        idx = int(orig_pos)
-        frac = orig_pos - idx
-        
-        # Leitura com reflexão suave nas bordas
-        idx0 = idx % n
-        idx1 = (idx + 1) % n
-        out[i] = (1.0 - frac) * audio[idx0] + frac * audio[idx1]
-
-    return out
 
 class AutoTune:
     def __init__(self, sample_rate: int = 48000):
@@ -138,7 +117,7 @@ class AutoTune:
         
         # Controles de desempenho
         self.snap_speed = 0.0    # 0.0 = Hard snap instantâneo (Travis Scott), 1.0 = suave/sutil
-        self.amount = 1.0        # 0.0 a 1.0 (Mix Dry/Wet do pitch)
+        self.amount = 1.0        # 0.0 a 1.0 da correção em semitons
         self.min_freq = 70.0     # C2 aprox
         self.max_freq = 750.0    # G5 aprox
         
@@ -146,7 +125,14 @@ class AutoTune:
         self._last_detected_freq = 0.0
         self._target_freq = 0.0
         self._current_freq = 0.0
-        self._buffer_history = np.zeros(1024, dtype=np.float32)
+        self._buffer_history = np.zeros(2048, dtype=np.float32)
+        self._shifter = StreamingPitchShifter(sample_rate)
+
+    def warm_up(self):
+        """Compile kernels before starting PortAudio callbacks."""
+        detect_pitch_yin_numba(self._buffer_history, self.sample_rate,
+                               self.min_freq, self.max_freq)
+        self._shifter.warm_up()
 
     def set_params(self, root: str = None, scale: str = None, snap_speed: float = None,
                    amount: float = None, enabled: bool = None):
@@ -197,7 +183,7 @@ class AutoTune:
         return self.midi_to_freq(best_target)
 
     def process(self, audio: np.ndarray) -> np.ndarray:
-        if not self.enabled or len(audio) == 0:
+        if not self.enabled or len(audio) == 0 or self.amount <= 0.01:
             return audio
 
         is_stereo = (audio.ndim == 2)
@@ -206,11 +192,9 @@ class AutoTune:
         else:
             mono = audio
 
-        frames = len(mono)
-
         # Monta buffer concatenado com histórico para detecção sólida
         hist_len = len(self._buffer_history)
-        full_analysis = np.concatenate((self._buffer_history, mono))
+        full_analysis = np.concatenate((self._buffer_history, mono))[-hist_len:]
         self._buffer_history = full_analysis[-hist_len:]
 
         # Detecta pitch fundamental
@@ -220,7 +204,8 @@ class AutoTune:
 
         if detected_f0 <= 0.0 or detected_f0 < self.min_freq or detected_f0 > self.max_freq:
             # Sem voz detectada (silêncio ou ruído)
-            return audio
+            # Continue advancing delay memory during unvoiced segments.
+            return self._shifter.process(audio, 1.0)
 
         self._last_detected_freq = detected_f0
         target_f0 = self.snap_to_scale(detected_f0)
@@ -235,21 +220,8 @@ class AutoTune:
             self._current_freq = smooth_factor * self._current_freq + (1.0 - smooth_factor) * target_f0
 
         # Razão de pitch shift
-        ratio = self._current_freq / detected_f0
+        # Amount scales correction in semitones, avoiding two simultaneous pitches.
+        ratio = (self._current_freq / detected_f0) ** self.amount
         ratio = max(0.6, min(1.6, ratio)) # Limita em intervalo seguro de 1 oitava
 
-        # Shift de tom acelerado
-        if is_stereo:
-            shifted_l = pitch_shift_linear_numba(audio[:, 0].astype(np.float32), ratio)
-            shifted_r = pitch_shift_linear_numba(audio[:, 1].astype(np.float32), ratio)
-            shifted = np.column_stack((shifted_l, shifted_r))
-        else:
-            shifted = pitch_shift_linear_numba(mono.astype(np.float32), ratio)
-
-        # Mix Amount (Dry / Wet)
-        if self.amount >= 0.99:
-            return shifted
-        elif self.amount <= 0.01:
-            return audio
-        else:
-            return (1.0 - self.amount) * audio + self.amount * shifted
+        return self._shifter.process(audio, ratio, self.sample_rate / detected_f0)

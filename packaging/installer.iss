@@ -4,7 +4,7 @@
 #define MyAppName "VocalFlow Studio - Live Voice FX"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "VocalFlow Team"
-#define MyAppURL "https://github.com/vocalflow/vocalflow-studio"
+#define MyAppURL "https://github.com/souusa26/vocalflow-studio"
 #define MyAppExeName "VocalFlowStudio.exe"
 
 [Setup]
@@ -34,7 +34,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "installvbcable"; Description: "Abrir página de download oficial do VB-Audio Cable gratuito (Necessário para Discord/OBS)"; GroupDescription: "Configurações Adicionais:"
 
 [Files]
-Source: "..\dist\VocalFlowStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\VocalFlowStudio\*"; DestDir: "{app}"; Excludes: "portable.txt,data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Remove only the erroneous marker left by older installers; preserve user data.
+Type: files; Name: "{app}\portable.txt"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -43,6 +47,3 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 Filename: "https://vb-audio.com/Cable/"; Tasks: installvbcable; Flags: shellexec runmaximized postinstall nowait skipifsilent
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"

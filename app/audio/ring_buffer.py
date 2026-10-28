@@ -1,5 +1,5 @@
 """
-Ring Buffer Thread-Safe e Lock-Free em NumPy para roteamento de áudio em tempo real.
+Ring buffer limitado e thread-safe para roteamento de áudio.
 Permite desacoplar a captura do microfone das saídas independentes (Cabo Virtual e Monitores).
 """
 
@@ -13,6 +13,9 @@ class AudioRingBuffer:
         self.buffer = np.zeros((capacity, channels), dtype=np.float32)
         self.write_pos = 0
         self.read_pos = 0
+        self._available = 0
+        self.overrun_frames = 0
+        self.underrun_frames = 0
         self.lock = threading.Lock()
 
     def write(self, data: np.ndarray) -> int:
@@ -29,10 +32,21 @@ class AudioRingBuffer:
             data = np.repeat(data, 2, axis=1)
 
         frames_to_write = data.shape[0]
+        original_frames = frames_to_write
         if frames_to_write == 0:
             return 0
 
         with self.lock:
+            dropped = max(0, self._available + frames_to_write - self.capacity)
+            self.overrun_frames += dropped
+            if frames_to_write >= self.capacity:
+                data = data[-self.capacity:]
+                frames_to_write = self.capacity
+                self.read_pos = self.write_pos
+                self._available = 0
+            elif dropped:
+                self.read_pos = (self.read_pos + dropped) % self.capacity
+                self._available -= dropped
             # Escreve com wrap-around se necessário
             end_pos = self.write_pos + frames_to_write
             if end_pos <= self.capacity:
@@ -44,7 +58,8 @@ class AudioRingBuffer:
                 self.buffer[0:second_part] = data[first_part:]
 
             self.write_pos = (self.write_pos + frames_to_write) % self.capacity
-        return frames_to_write
+            self._available += frames_to_write
+        return original_frames
 
     def read(self, frames_to_read: int) -> np.ndarray:
         """
@@ -57,7 +72,7 @@ class AudioRingBuffer:
 
         with self.lock:
             # Calcula quantos frames estão disponíveis
-            available = (self.write_pos - self.read_pos) % self.capacity
+            available = self._available
             frames = min(frames_to_read, available)
 
             if frames > 0:
@@ -71,15 +86,19 @@ class AudioRingBuffer:
                     out[first_part:frames] = self.buffer[0:second_part]
 
                 self.read_pos = (self.read_pos + frames) % self.capacity
+                self._available -= frames
+            self.underrun_frames += frames_to_read - frames
 
         return out
 
     def available_read(self) -> int:
         with self.lock:
-            return (self.write_pos - self.read_pos) % self.capacity
+            return self._available
 
     def clear(self):
         with self.lock:
             self.write_pos = 0
             self.read_pos = 0
+            self._available = 0
+            self.overrun_frames = self.underrun_frames = 0
             self.buffer.fill(0)

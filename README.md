@@ -10,7 +10,7 @@ Desenvolvido especialmente para cantores e MCs iniciantes de rap, trap e hip-hop
 
 ### 1. Processamento Vocal em Tempo Real (Cadeia de Efeitos de Estúdio)
 - **Noise Gate:** Elimina ruídos de fundo e respirações indesejadas antes da afinação.
-- **Autotune de Alta Velocidade:** Motor YIN acelerado por **Numba JIT**, com suporte desde correção suave até o clássico *Hard Snap* estilo Travis Scott / T-Pain em escalas Pentatônica, Menor e Maior.
+- **Autotune de Alta Velocidade:** Motor YIN e pitch-shifter granular contínuo acelerados por **Numba JIT**, com suporte desde correção suave até o clássico *Hard Snap* estilo Travis Scott / T-Pain em escalas Pentatônica, Menor e Maior.
 - **Equalizador Paramétrico de 3 Bandas + High-Pass:** Corte de graves subsônicos (<80Hz), reforço de presença (2.5kHz) e brilho de cápsula de condensador (9kHz).
 - **Compressor Dinâmico:** Encorpa a voz, amortece picos e traz consistência de volume ("punch").
 - **Delay / Eco:** Eco estéreo analógico com repetições suaves e filtro passa-baixas.
@@ -87,7 +87,7 @@ PYTHONPATH=. pytest tests -v
 ```bash
 python packaging/build.py
 ```
-O executável e o arquivo `.zip` serão gerados na pasta `dist/`.
+O executável e o arquivo `.zip` serão gerados na pasta `dist/`. O ZIP contém `portable.txt` e salva os dados ao lado do executável; o instalador usa `%APPDATA%/VocalFlowStudio`.
 
 ### 2. Gerar o Instalador para Windows (.exe)
 1. Instale o [Inno Setup 6](https://jrsoftware.org/isdl.php) no Windows.
@@ -106,3 +106,11 @@ O executável e o arquivo `.zip` serão gerados na pasta `dist/`.
 
 ## ⚖️ Licença
 Distribuído sob a licença **MIT**. Veja o arquivo `LICENSE` para mais detalhes.
+
+## Validação e limites do processamento ao vivo
+
+- O autotune mantém memória e fase entre callbacks. Sua janela granular chega a 40 ms, além da análise de afinação e dos buffers/drivers; o tempo de um buffer isolado não representa a latência total.
+- O algoritmo atual não preserva formantes como um afinador vocal de estúdio. Qualidade perceptiva e latência devem ser avaliadas com voz real no Windows.
+- Arquivos a 44,1/48 kHz são reamostrados para a taxa da sessão antes da reprodução e exportação. O instrumental completo começa mutado quando seus componentes também estão carregados, evitando duplicação.
+- O salvamento de letras é atômico e é concluído antes de trocar, exportar ou fechar. Uma falha mantém o texto no editor e impede o fechamento.
+- Testes de streams usam dispositivos simulados; a validação de VB-Cable, Discord, OBS e estabilidade prolongada em hardware continua necessária.
