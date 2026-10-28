@@ -4,9 +4,10 @@ Explica a instalação do VB-Audio Virtual Cable, configuração no Discord/OBS 
 """
 
 import webbrowser
+from html import escape
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QComboBox, QGroupBox, QTextBrowser, QFrame
+    QComboBox, QGroupBox, QTextBrowser, QFrame, QMessageBox
 )
 from PyQt6.QtCore import Qt
 
@@ -28,41 +29,50 @@ class TabSettings(QWidget):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
+        intro = QLabel("Ajuste o áudio e conecte sua voz ao Discord ou OBS.")
+        intro.setObjectName("sectionIntro")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
         # -------------------------------------------------------------
         # 1. LATÊNCIA E BUFFER DE ÁUDIO
         # -------------------------------------------------------------
-        buffer_group = QGroupBox("Ajuste de Latência e Buffer de Áudio")
+        buffer_group = QGroupBox("Desempenho do áudio")
         buffer_layout = QGridLayout(buffer_group)
         buffer_layout.setContentsMargins(14, 14, 14, 14)
         buffer_layout.setHorizontalSpacing(16)
         buffer_layout.setVerticalSpacing(8)
 
-        buffer_layout.addWidget(QLabel("Tamanho do Buffer (Block Size):"), 0, 0)
+        buffer_layout.addWidget(QLabel("Tamanho do buffer"), 0, 0)
         self.combo_buffer = QComboBox()
-        self.combo_buffer.addItems(["128 amostras (Latência Ultra-Baixa: ~2.7 ms)",
-                                    "256 amostras (Recomendado: ~5.3 ms)",
-                                    "512 amostras (Estabilidade Padrão: ~10.6 ms)",
-                                    "1024 amostras (Para PCs mais lentos: ~21.3 ms)"])
-        self.combo_buffer.setCurrentIndex(1) # 256
+        self.combo_buffer.addItems(["128 amostras — menor atraso",
+                                    "256 amostras — recomendado",
+                                    "512 amostras — mais estável",
+                                    "1024 amostras — para computadores mais lentos"])
+        self.combo_buffer.setCurrentIndex([128, 256, 512, 1024].index(self.engine.block_size))
+        self.combo_buffer.setToolTip("Se ouvir falhas ou estalos, experimente aumentar o buffer.")
         self.combo_buffer.currentIndexChanged.connect(self._on_buffer_changed)
         buffer_layout.addWidget(self.combo_buffer, 0, 1)
 
-        buffer_layout.addWidget(QLabel("Taxa de Amostragem (Sample Rate):"), 1, 0)
+        buffer_layout.addWidget(QLabel("Taxa de amostragem"), 1, 0)
         self.combo_sr = QComboBox()
         self.combo_sr.addItems(["48000 Hz (Padrão de Vídeo/Discord/OBS)", "44100 Hz (Padrão CD)"])
+        self.combo_sr.setCurrentIndex([48000, 44100].index(self.engine.sample_rate))
         self.combo_sr.currentIndexChanged.connect(self._on_sr_changed)
         buffer_layout.addWidget(self.combo_sr, 1, 1)
 
         self.lbl_latency_info = QLabel("⏱️ Latência Teórica do Buffer: ~5.3 ms (excluindo conversão dos drivers)")
-        self.lbl_latency_info.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 12px;")
+        self.lbl_latency_info.setObjectName("mutedText")
+        self.lbl_latency_info.setWordWrap(True)
         buffer_layout.addWidget(self.lbl_latency_info, 2, 0, 1, 2)
 
+        self._show_latency()
         layout.addWidget(buffer_group)
 
         # -------------------------------------------------------------
         # 2. STATUS DO CABO VIRTUAL E ASSISTENTE DE INSTALAÇÃO
         # -------------------------------------------------------------
-        vc_group = QGroupBox("Guia de Microfone Virtual (Discord, OBS e Jogos)")
+        vc_group = QGroupBox("Conectar ao Discord ou OBS")
         vc_layout = QVBoxLayout(vc_group)
         vc_layout.setContentsMargins(14, 14, 14, 14)
         vc_layout.setSpacing(10)
@@ -73,12 +83,12 @@ class TabSettings(QWidget):
         self.lbl_vc_status.setStyleSheet("font-size: 13px; font-weight: bold;")
         status_row.addWidget(self.lbl_vc_status, stretch=1)
 
-        btn_download_vc = QPushButton("🌐 Baixar VB-Audio Cable Oficial")
+        btn_download_vc = QPushButton("Baixar VB-Cable")
         btn_download_vc.setObjectName("btn_primary")
         btn_download_vc.clicked.connect(lambda: webbrowser.open(VB_CABLE_OFFICIAL_URL))
         status_row.addWidget(btn_download_vc)
 
-        btn_recheck = QPushButton("🔄 Re-verificar")
+        btn_recheck = QPushButton("Verificar novamente")
         btn_recheck.clicked.connect(self._check_virtual_status)
         status_row.addWidget(btn_recheck)
 
@@ -100,15 +110,14 @@ class TabSettings(QWidget):
         """)
 
         mode_str = "Modo Portátil Ativo (Sem instalação necessária)" if is_portable_mode() else "Modo Padrão Instalado"
-        storage_path = str(get_data_dir())
+        storage_path = escape(str(get_data_dir()))
 
         guide_html = f"""
-        <h3 style="color: #00e5ff; margin-top:0;">Como usar sua voz com efeitos no Discord, OBS e outros programas:</h3>
+        <h3 style="color: #aabaff; margin-top:0;">Sua voz com efeitos em outros aplicativos</h3>
         
-        <p><b>1. Por que usar um Cabo de Áudio Virtual?</b><br>
-        O Windows precisa de uma 'ponte' para pegar o áudio processado pelo VocalFlow Studio e entregá-lo como se fosse um microfone físico para seus amigos no Discord ou na sua live do OBS.</p>
+        <p>O VB-Cable conecta a saída do VocalFlow à entrada de microfone do Discord ou OBS.</p>
         
-        <p><b>2. Passo a Passo de Configuração:</b></p>
+        <p><b>Passo a passo:</b></p>
         <ul>
             <li><b>No VocalFlow Studio (Aba Voz):</b>
                 <ul>
@@ -155,18 +164,22 @@ class TabSettings(QWidget):
             self.lbl_vc_status.setText("⚠️ Nenhum cabo virtual detectado no Windows.")
             self.lbl_vc_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
 
+    def _show_latency(self):
+        ms = self.engine.block_size / self.engine.sample_rate * 1000.0
+        self.lbl_latency_info.setText(
+            f"Cada buffer: {ms:.1f} ms. O atraso total também depende da afinação e dos dispositivos. "
+            "Se ouvir estalos, aumente o tamanho do buffer.")
+
     def _on_buffer_changed(self, idx: int):
-        sizes = [128, 256, 512, 1024]
-        size = sizes[idx]
-        self.engine.block_size = size
-        ms = (size / float(self.engine.sample_rate)) * 1000.0
-        self.lbl_latency_info.setText(f"⏱️ Latência Teórica do Buffer: ~{ms:.1f} ms ({size} amostras a {self.engine.sample_rate} Hz)")
+        try:
+            self.engine.configure(block_size=[128, 256, 512, 1024][idx])
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Configuração de áudio", str(exc))
+        self._show_latency()
 
     def _on_sr_changed(self, idx: int):
-        srs = [48000, 44100]
-        sr = srs[idx]
-        self.engine.sample_rate = sr
-        self.engine.fx_chain.set_sample_rate(sr)
-        self.engine.stem_player.target_sample_rate = sr
-        ms = (self.engine.block_size / float(sr)) * 1000.0
-        self.lbl_latency_info.setText(f"⏱️ Latência Teórica do Buffer: ~{ms:.1f} ms ({self.engine.block_size} amostras a {sr} Hz)")
+        try:
+            self.engine.configure(sample_rate=[48000, 44100][idx])
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Configuração de áudio", str(exc))
+        self._show_latency()

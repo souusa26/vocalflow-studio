@@ -30,9 +30,9 @@ graph TD
 
     Transport -.->|Backing Track Seletivo| Mixer
 
-    Mixer --> RB_Virtual[RingBuffer Lock-Free Virtual]
-    Mixer --> RB_Mon1[RingBuffer Lock-Free Monitor 1]
-    Mixer --> RB_Mon2[RingBuffer Lock-Free Monitor 2]
+    Mixer --> RB_Virtual[RingBuffer Thread-Safe Virtual]
+    Mixer --> RB_Mon1[RingBuffer Thread-Safe Monitor 1]
+    Mixer --> RB_Mon2[RingBuffer Thread-Safe Monitor 2]
 
     RB_Virtual --> Out_Virtual[Cabo Virtual -> Discord/OBS]
     RB_Mon1 --> Out_Mon1[Monitor 1 -> Fones de Ouvido]
@@ -41,7 +41,7 @@ graph TD
 
 ---
 
-## 2. Pipeline Desacoplado Multi-Stream com Ring Buffers Lock-Free
+## 2. Pipeline Desacoplado Multi-Stream com Ring Buffers Limitados
 
 Para alimentar múltiplos destinos de áudio simultâneos (Cabo Virtual e até dois Monitores Físicos) com latências e taxas de relógio de hardware distintas, adotamos uma arquitetura de **Pipeline Desacoplado**:
 
@@ -52,7 +52,7 @@ Para alimentar múltiplos destinos de áudio simultâneos (Cabo Virtual e até d
 
 2. **Callbacks de Saída (Consumidores Independentes):**
    - O Cabo Virtual (Discord/OBS), o Fone de Ouvido e as Caixas de Som puxam blocos do seu próprio `AudioRingBuffer`.
-   - Se uma saída sofrer atraso ou for temporariamente desconectada, os outros dispositivos continuam operando normalmente sem estalos (*underruns*) nem descontinuidade na transmissão.
+   - Se uma saída atrasar, o buffer descarta os frames mais antigos ao encher e retorna silêncio quando faltar áudio. Esse mecanismo limita o acúmulo de atraso, mas não garante ausência de estalos nem sincroniza relógios de hardware distintos. Falhas de abertura são reportadas e desfazem a inicialização.
 
 ---
 
@@ -101,3 +101,9 @@ O aplicativo conta com uma estratégia híbrida:
 
 - **Presets:** Armazenados em formato JSON estruturado com chave `is_factory` protegendo os perfis clássicos contra exclusão acidental.
 - **Letras:** Suporte a salvamento automático com *debounce* de 600ms, preservando cada barra e rima digitada sem exigir que o cantor pause o ensaio para salvar.
+
+## Continuidade e latência do autotune
+
+A correção usa duas cabeças de leitura sobre uma linha de atraso persistente, com crossfade e janelas alinhadas ao período vocal. A fase de leitura não reinicia a cada callback. A janela granular é limitada a 40 ms e a análise YIN usa 2048 amostras. A intensidade escala a correção em semitons; zero faz bypass. Não há preservação de formantes. Os kernels Numba são aquecidos antes de abrir os streams.
+
+O limiter vocal é seguido por um limiter independente por destino, depois da soma dos stems e do ganho de monitoramento. Alterar taxa ou tamanho do bloco encerra e recria os streams, mantendo os parâmetros dos efeitos e a posição dos stems.

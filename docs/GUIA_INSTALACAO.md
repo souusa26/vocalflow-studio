@@ -9,7 +9,7 @@ Este guia explica como instalar o **VocalFlow Studio - Live Voice FX**, configur
 O aplicativo pode ser utilizado de duas formas no Windows:
 
 ### A. Versão Portátil (Recomendada para Pen Drives ou Sem Instalação)
-1. Baixe e extraia o arquivo `VocalFlowStudio_Portatil_v1.0.0.zip` em qualquer pasta (ex: `C:\Programas\VocalFlowStudio` ou na Área de Trabalho).
+1. Baixe e extraia o arquivo `VocalFlowStudio_Portatil_v1.1.0.zip` em qualquer pasta (ex: `C:\Programas\VocalFlowStudio` ou na Área de Trabalho).
 2. Execute o arquivo `VocalFlowStudio.exe`.
 3. Todas as suas configurações, letras e presets serão salvos na subpasta `data\` dentro do próprio diretório do programa, sem espalhar arquivos pelo sistema.
 
@@ -18,8 +18,8 @@ O aplicativo pode ser utilizado de duas formas no Windows:
 
 ---
 
-### B. Versão Instalador (`VocalFlowStudio_Instalador_v1.0.0.exe`)
-1. Execute o instalador `VocalFlowStudio_Instalador_v1.0.0.exe`.
+### B. Versão Instalador (`VocalFlowStudio_Instalador_v1.1.0.exe`)
+1. Execute o instalador `VocalFlowStudio_Instalador_v1.1.0.exe`.
 2. Siga as instruções na tela em Português do Brasil.
 3. O instalador criará atalhos no Menu Iniciar e na Área de Trabalho, além de disponibilizar um desinstalador limpo no Painel de Controle.
 4. Na tela final, marque a opção para abrir o site do **VB-Audio Cable** caso ainda não o tenha instalado.

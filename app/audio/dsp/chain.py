@@ -31,20 +31,18 @@ class VocalFXChain:
         self.limiter = LimiterAndMeter(sample_rate)
 
     def set_sample_rate(self, sample_rate: int):
-        self.sample_rate = sample_rate
-        self.gate.sample_rate = sample_rate
-        self.autotune.sample_rate = sample_rate
-        self.eq.sample_rate = sample_rate
-        self.eq._update_coefficients()
-        self.compressor.sample_rate = sample_rate
-        self.delay.sample_rate = sample_rate
-        self.reverb = Reverb(sample_rate)
-        self.limiter.sample_rate = sample_rate
+        state = self.get_state()
+        self.__init__(sample_rate)
+        self.load_state(state)
 
     def process(self, audio: np.ndarray) -> np.ndarray:
         """Executa a passagem completa pelo rack de efeitos."""
         if len(audio) == 0:
             return audio
+
+        # PortAudio mono input is (frames, 1); spatial effects need two channels.
+        if audio.ndim == 2 and audio.shape[1] == 1:
+            audio = np.repeat(audio, 2, axis=1)
 
         # 1. Ganho de Entrada
         x = audio * self.input_gain

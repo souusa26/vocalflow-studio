@@ -3,7 +3,7 @@ Janela Principal da Aplicação (MainWindow).
 Reúne as 4 áreas principais do VocalFlow Studio em uma interface moderna e coesa.
 """
 
-from PyQt6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QStatusBar
+from PyQt6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QStatusBar, QMessageBox
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 
@@ -33,10 +33,27 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         central_widget = QWidget()
+        central_widget.setObjectName("central")
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 8)
-        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(20, 16, 20, 10)
+        main_layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        brand_stack = QVBoxLayout()
+        brand_stack.setSpacing(0)
+        brand = QLabel("VocalFlow Studio")
+        brand.setObjectName("brand")
+        subtitle = QLabel("Sua voz, do seu jeito.")
+        subtitle.setObjectName("subtitle")
+        brand_stack.addWidget(brand)
+        brand_stack.addWidget(subtitle)
+        header.addLayout(brand_stack)
+        header.addStretch()
+        brand_accent = QLabel("SEU ESTÚDIO VOCAL")
+        brand_accent.setObjectName("brandAccent")
+        header.addWidget(brand_accent)
+        main_layout.addLayout(header)
 
         # Abas de Navegação Principal
         self.tabs = QTabWidget()
@@ -46,22 +63,33 @@ class MainWindow(QMainWindow):
         self.tab_lyrics = TabLyrics(self.lyrics_mgr)
         self.tab_settings = TabSettings(self.engine)
 
-        self.tabs.addTab(self.tab_vocal, "🎙️ Processamento Vocal & Efeitos")
-        self.tabs.addTab(self.tab_stems, "🎵 Stem Player & Separação de Músicas")
-        self.tabs.addTab(self.tab_lyrics, "📝 Bloco de Notas para Letras")
-        self.tabs.addTab(self.tab_settings, "⚙️ Latência & Guia Cabo Virtual")
+        self.tabs.addTab(self.tab_vocal, "🎙  Voz e efeitos")
+        self.tabs.addTab(self.tab_stems, "♪  Música e faixas")
+        self.tabs.addTab(self.tab_lyrics, "✎  Letras")
+        self.tabs.addTab(self.tab_settings, "⚙  Configurações")
 
         main_layout.addWidget(self.tabs)
 
         # Barra de Status Inferior
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("VocalFlow Studio Pronto | Desenvolvido para Cantores e MCs de Hip-Hop")
+        self.status_bar.showMessage("Pronto para começar • Escolha seus dispositivos na aba Voz e efeitos")
 
     def closeEvent(self, event):
         """Para o motor de áudio e threads ao fechar a janela."""
-        if hasattr(self, "engine") and self.engine.is_running:
+        if not self.tab_lyrics.flush_pending_save():
+            QMessageBox.warning(self, "Letra não salva",
+                "Não foi possível salvar a letra. A janela permanecerá aberta para preservar seu texto.")
+            event.ignore()
+            return
+        if hasattr(self, "engine"):
             self.engine.stop()
-        if hasattr(self, "tab_stems") and self.tab_stems.worker:
-            self.tab_stems.worker.cancel()
+        worker = self.tab_stems.worker
+        if worker and worker.isRunning():
+            if not getattr(self, "_waiting_for_worker", False):
+                self._waiting_for_worker = True
+                worker.finished.connect(self.close)
+            worker.cancel()
+            event.ignore()
+            return
         event.accept()

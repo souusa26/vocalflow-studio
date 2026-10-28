@@ -23,10 +23,14 @@ class TabVocal(QWidget):
         super().__init__(parent)
         self.engine = audio_engine
         self.preset_mgr = preset_manager
+        self._reported_error = None
+        self._displayed_running = None
+        self._devices_loaded = False
 
         self._init_ui()
         self._refresh_devices()
         self._refresh_presets_combo()
+        self._on_preset_selected(self.combo_presets.currentIndex())
 
         # Timer de atualização visual dos medidores VU (30 FPS)
         self.meter_timer = QTimer(self)
@@ -36,43 +40,52 @@ class TabVocal(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(14, 14, 14, 14)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 14, 16, 14)
+        main_layout.setSpacing(8)
+        guide = QLabel("Comece escolhendo seu microfone e fone. Depois selecione um preset e inicie sua voz.")
+        guide.setObjectName("sectionHint")
+        guide.setWordWrap(True)
+        main_layout.addWidget(guide)
 
         # -------------------------------------------------------------
         # 1. BARRA SUPERIOR: MASTER ON/OFF + DISPOSITIVOS E MONITORAMENTO
         # -------------------------------------------------------------
-        top_group = QGroupBox("Dispositivos de Áudio e Roteamento")
+        top_group = QGroupBox("1  ·  Conecte seus dispositivos")
         top_layout = QGridLayout(top_group)
         top_layout.setContentsMargins(14, 14, 14, 14)
         top_layout.setHorizontalSpacing(14)
         top_layout.setVerticalSpacing(8)
 
         # Microfone de Entrada
-        top_layout.addWidget(QLabel("🎤 Microfone de Entrada:"), 0, 0)
+        top_layout.addWidget(QLabel("Microfone:"), 0, 0)
         self.combo_input = QComboBox()
+        self.combo_input.setMinimumWidth(180)
         self.combo_input.currentIndexChanged.connect(self._on_input_device_changed)
         top_layout.addWidget(self.combo_input, 0, 1)
 
         # Cabo Virtual (Discord / OBS)
-        top_layout.addWidget(QLabel("🌐 Saída Virtual (Discord / OBS):"), 1, 0)
+        top_layout.addWidget(QLabel("Enviar para Discord / OBS:"), 1, 0)
         self.combo_virtual = QComboBox()
+        self.combo_virtual.setToolTip("Escolha CABLE Input para enviar sua voz ao Discord ou OBS. Você pode deixar desativado para ouvir apenas no fone.")
         self.combo_virtual.currentIndexChanged.connect(self._on_virtual_device_changed)
         top_layout.addWidget(self.combo_virtual, 1, 1)
 
         # Monitor 1 (ex: Fones de Ouvido)
         mon1_header = QHBoxLayout()
-        self.chk_mon1 = QCheckBox("🎧 Monitor 1 (Fone):")
+        self.chk_mon1 = QCheckBox("Ouvir no fone:")
         self.chk_mon1.setChecked(True)
         self.chk_mon1.toggled.connect(self._on_mon1_toggled)
         mon1_header.addWidget(self.chk_mon1)
         top_layout.addLayout(mon1_header, 0, 2)
 
         self.combo_mon1 = QComboBox()
+        self.combo_mon1.setMinimumWidth(160)
         self.combo_mon1.currentIndexChanged.connect(self._on_mon1_device_changed)
         top_layout.addWidget(self.combo_mon1, 0, 3)
 
         self.slider_mon1_vol = QSlider(Qt.Orientation.Horizontal)
+        self.slider_mon1_vol.setMaximumWidth(160)
+        self.slider_mon1_vol.setToolTip("Volume da sua voz e da música no fone")
         self.slider_mon1_vol.setRange(0, 150)
         self.slider_mon1_vol.setValue(100)
         self.slider_mon1_vol.valueChanged.connect(lambda v: self.engine.set_monitor1(self.chk_mon1.isChecked(), volume=v/100.0))
@@ -80,24 +93,27 @@ class TabVocal(QWidget):
 
         # Monitor 2 (ex: Caixas de Som)
         mon2_header = QHBoxLayout()
-        self.chk_mon2 = QCheckBox("🔊 Monitor 2 (Caixa):")
+        self.chk_mon2 = QCheckBox("Segunda saída:")
         self.chk_mon2.setChecked(False)
         self.chk_mon2.toggled.connect(self._on_mon2_toggled)
         mon2_header.addWidget(self.chk_mon2)
         top_layout.addLayout(mon2_header, 1, 2)
 
         self.combo_mon2 = QComboBox()
+        self.combo_mon2.setMinimumWidth(160)
         self.combo_mon2.currentIndexChanged.connect(self._on_mon2_device_changed)
         top_layout.addWidget(self.combo_mon2, 1, 3)
 
         self.slider_mon2_vol = QSlider(Qt.Orientation.Horizontal)
+        self.slider_mon2_vol.setMaximumWidth(160)
+        self.slider_mon2_vol.setToolTip("Volume da segunda saída")
         self.slider_mon2_vol.setRange(0, 150)
         self.slider_mon2_vol.setValue(100)
         self.slider_mon2_vol.valueChanged.connect(lambda v: self.engine.set_monitor2(self.chk_mon2.isChecked(), volume=v/100.0))
         top_layout.addWidget(self.slider_mon2_vol, 1, 4)
 
         # Botão Atualizar Dispositivos
-        btn_refresh_devs = QPushButton("🔄 Atualizar")
+        btn_refresh_devs = QPushButton("Atualizar dispositivos")
         btn_refresh_devs.clicked.connect(self._refresh_devices)
         top_layout.addWidget(btn_refresh_devs, 0, 5, 2, 1)
 
@@ -105,7 +121,7 @@ class TabVocal(QWidget):
 
         # ALERTA DE MICROFONIA (Banner ocultável)
         self.lbl_feedback_warning = QLabel(
-            "⚠️ ATENÇÃO: Monitor 2 está conectado a uma Caixa de Som! "
+            "⚠️ Uma saída parece ser uma caixa de som. "
             "Para evitar microfonia aguda (feedback loop), afaste o microfone da caixa ou use fones de ouvido."
         )
         self.lbl_feedback_warning.setStyleSheet("""
@@ -124,17 +140,18 @@ class TabVocal(QWidget):
         # 2. BARRA DE CONTROLE MASTER E PRESETS
         # -------------------------------------------------------------
         mid_layout = QHBoxLayout()
+        mid_layout.setSpacing(12)
 
         # Botão Master Ligar/Desligar Voz
-        self.btn_live = QPushButton("🎙️ INICIAR PROCESSAMENTO (AO VIVO)")
+        self.btn_live = QPushButton("▶  Iniciar voz ao vivo")
         self.btn_live.setObjectName("btn_live_off")
         self.btn_live.setFixedHeight(44)
-        self.btn_live.setFixedWidth(290)
+        self.btn_live.setMinimumWidth(210)
         self.btn_live.clicked.connect(self._toggle_engine)
         mid_layout.addWidget(self.btn_live)
 
         # VU Meters Entrada e Saída
-        meter_box = QGroupBox("Níveis de Áudio (VU)")
+        meter_box = QGroupBox("Sinal do microfone")
         meter_layout = QGridLayout(meter_box)
         meter_layout.setContentsMargins(10, 8, 10, 8)
         meter_layout.addWidget(QLabel("Entrada:"), 0, 0)
@@ -147,14 +164,14 @@ class TabVocal(QWidget):
         mid_layout.addWidget(meter_box)
 
         # Seção Presets
-        preset_box = QGroupBox("Presets Vocais")
+        preset_box = QGroupBox("2  ·  Escolha seu som")
         preset_layout = QHBoxLayout(preset_box)
         preset_layout.setContentsMargins(10, 8, 10, 8)
 
         self.combo_presets = QComboBox()
         self.combo_presets.setMinimumWidth(180)
         self.combo_presets.currentIndexChanged.connect(self._on_preset_selected)
-        preset_layout.addWidget(self.combo_presets)
+        preset_layout.addWidget(self.combo_presets, stretch=1)
 
         btn_save_preset = QPushButton("💾 Salvar")
         btn_save_preset.clicked.connect(self._save_new_preset)
@@ -168,8 +185,11 @@ class TabVocal(QWidget):
         btn_export_preset.clicked.connect(self._export_preset)
         preset_layout.addWidget(btn_export_preset)
 
-        mid_layout.addWidget(preset_box)
         main_layout.addLayout(mid_layout)
+        main_layout.addWidget(preset_box)
+        fx_hint = QLabel("3  ·  Ajuste os efeitos abaixo ou use um preset para começar")
+        fx_hint.setObjectName("sectionHint")
+        main_layout.addWidget(fx_hint)
 
         # -------------------------------------------------------------
         # 3. RACK DE EFEITOS (SCROLL ÁREA COM TODOS OS CARDS DE EFEITOS)
@@ -277,8 +297,8 @@ class TabVocal(QWidget):
         layout.addWidget(self.slider_tune_speed, 1, 2)
         layout.addWidget(self.lbl_tune_speed, 1, 3)
 
-        # Quantidade (Dry/Wet)
-        layout.addWidget(QLabel("Intensidade (Dry/Wet):"), 1, 4)
+        # Intensidade da correção em semitons.
+        layout.addWidget(QLabel("Intensidade da Correção:"), 1, 4)
         self.slider_tune_amount = QSlider(Qt.Orientation.Horizontal)
         self.slider_tune_amount.setRange(0, 100)
         self.slider_tune_amount.setValue(int(self.engine.fx_chain.autotune.amount * 100))
@@ -494,6 +514,10 @@ class TabVocal(QWidget):
     # -------------------------------------------------------------
     def _refresh_devices(self):
         inputs, outputs = get_audio_devices()
+        previous_input = self.engine.input_device_id
+        previous_virtual = self.engine.virtual_device_id
+        previous_mon1 = self.engine.monitor1_device_id
+        previous_mon2 = self.engine.monitor2_device_id
 
         self.combo_input.blockSignals(True)
         self.combo_virtual.blockSignals(True)
@@ -503,8 +527,11 @@ class TabVocal(QWidget):
         self.combo_input.clear()
         for dev in inputs:
             self.combo_input.addItem(f"{dev['name']} ({dev['hostapi']})", dev["id"])
+        if not inputs:
+            self.combo_input.addItem("Nenhum microfone encontrado", None)
 
         self.combo_virtual.clear()
+        self.combo_virtual.addItem("Desativado — somente monitoramento", None)
         for dev in outputs:
             prefix = "🌐 " if dev["is_virtual"] else ""
             self.combo_virtual.addItem(f"{prefix}{dev['name']} ({dev['hostapi']})", dev["id"])
@@ -514,21 +541,27 @@ class TabVocal(QWidget):
         for dev in outputs:
             self.combo_mon1.addItem(f"{dev['name']} ({dev['hostapi']})", dev["id"])
             self.combo_mon2.addItem(f"{dev['name']} ({dev['hostapi']})", dev["id"])
+        if not outputs:
+            self.combo_mon1.addItem("Nenhuma saída encontrada", None)
+            self.combo_mon2.addItem("Nenhuma saída encontrada", None)
 
-        # Auto-seleciona cabo virtual se encontrado
-        vc = find_virtual_cable_output()
-        if vc is not None:
-            idx = self.combo_virtual.findData(vc["id"])
-            if idx >= 0:
-                self.combo_virtual.setCurrentIndex(idx)
-                self.engine.virtual_device_id = vc["id"]
-
-        if self.combo_input.count() > 0:
-            self.engine.input_device_id = self.combo_input.currentData()
-        if self.combo_mon1.count() > 0:
-            self.engine.monitor1_device_id = self.combo_mon1.currentData()
-        if self.combo_mon2.count() > 0:
-            self.engine.monitor2_device_id = self.combo_mon2.currentData()
+        for combo, previous in ((self.combo_input, previous_input),
+                                (self.combo_mon1, previous_mon1),
+                                (self.combo_mon2, previous_mon2)):
+            index = combo.findData(previous) if previous is not None else -1
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        virtual = previous_virtual
+        if not self._devices_loaded and virtual is None:
+            cable = find_virtual_cable_output()
+            virtual = cable["id"] if cable is not None else None
+        index = self.combo_virtual.findData(virtual)
+        self.combo_virtual.setCurrentIndex(index if index >= 0 else 0)
+        self.engine.input_device_id = self.combo_input.currentData()
+        self.engine.virtual_device_id = self.combo_virtual.currentData()
+        self.engine.monitor1_device_id = self.combo_mon1.currentData()
+        self.engine.monitor2_device_id = self.combo_mon2.currentData()
+        self._devices_loaded = True
 
         self.combo_input.blockSignals(False)
         self.combo_virtual.blockSignals(False)
@@ -536,6 +569,10 @@ class TabVocal(QWidget):
         self.combo_mon2.blockSignals(False)
 
         self._check_speaker_feedback_risk()
+        if self.engine.is_running and (previous_input, previous_virtual, previous_mon1, previous_mon2) != (
+                self.engine.input_device_id, self.engine.virtual_device_id,
+                self.engine.monitor1_device_id, self.engine.monitor2_device_id):
+            self._restart_engine()
 
     def _on_input_device_changed(self, idx: int):
         dev_id = self.combo_input.itemData(idx)
@@ -581,13 +618,13 @@ class TabVocal(QWidget):
     def _toggle_engine(self):
         if self.engine.is_running:
             self.engine.stop()
-            self.btn_live.setText("🎙️ INICIAR PROCESSAMENTO (AO VIVO)")
+            self.btn_live.setText("▶  Iniciar voz ao vivo")
             self.btn_live.setObjectName("btn_live_off")
             self.btn_live.setStyleSheet("")
         else:
             try:
                 self.engine.start()
-                self.btn_live.setText("🔴 AO VIVO - TRANSMITINDO PROCESSADO")
+                self.btn_live.setText("■  Parar voz ao vivo")
                 self.btn_live.setObjectName("btn_live_on")
                 self.btn_live.setStyleSheet("""
                     QPushButton {
@@ -598,6 +635,7 @@ class TabVocal(QWidget):
                     }
                 """)
             except Exception as e:
+                self._reported_error = self.engine.last_error
                 QMessageBox.critical(self, "Falha de Áudio", f"Não foi possível iniciar o fluxo de áudio:\n{e}")
 
     def _restart_engine(self):
@@ -609,12 +647,25 @@ class TabVocal(QWidget):
                 print(f"[TabVocal] Erro ao reiniciar motor: {e}")
 
     def _update_meters(self):
+        running = self.engine.is_running
+        if running != self._displayed_running:
+            self._displayed_running = running
+            self.btn_live.setText("■  Parar voz ao vivo" if running
+                                  else "▶  Iniciar voz ao vivo")
+            self.btn_live.setStyleSheet("background-color: #00e676; color: #000000;" if running else "")
+        if not running and self.engine.last_error and self.engine.last_error != self._reported_error:
+            self._reported_error = self.engine.last_error
+            self.engine.stop()
+            QMessageBox.warning(self, "Falha de áudio", self._reported_error)
         if self.engine.is_running:
             p_in = self.engine.fx_chain.limiter.input_peak_db
             r_in = self.engine.fx_chain.limiter.input_rms_db
-            p_out = self.engine.fx_chain.limiter.output_peak_db
-            r_out = self.engine.fx_chain.limiter.output_rms_db
-            clip = self.engine.fx_chain.limiter.clipped
+            destination = "virtual" if self.engine.virtual_device_id is not None else (
+                "mon1" if self.engine.monitor1_enabled else "mon2")
+            meter = self.engine.output_limiters[destination]
+            p_out = meter.output_peak_db
+            r_out = meter.output_rms_db
+            clip = meter.clipped
 
             self.meter_in.set_levels(p_in, r_in, False)
             self.meter_out.set_levels(p_out, r_out, clip)

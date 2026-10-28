@@ -17,7 +17,7 @@ class LimiterAndMeter:
         self.output_rms_db = -100.0
         self.clipped = False
 
-        self._envelope = 0.0
+        self._envelope = 1.0
 
     def calculate_levels(self, audio: np.ndarray) -> tuple[float, float, bool]:
         """Calcula Peak (dBFS), RMS (dBFS) e flag de clipagem."""
@@ -75,10 +75,11 @@ class LimiterAndMeter:
         # Aplica atenuação e saturação analógica tanh para picos extremos
         limited = audio * (gain_envelope[:, np.newaxis] if is_stereo else gain_envelope)
         
-        # Soft-clip analógico para evitar qualquer descontinuidade
-        out = np.tanh(limited / ceiling_linear) * ceiling_linear
+        # Final guard against overshoot; preserve signals below the ceiling.
+        out = np.clip(limited, -ceiling_linear, ceiling_linear)
 
         # 3. Mede nível de saída
-        self.output_peak_db, self.output_rms_db, self.clipped = self.calculate_levels(out)
+        self.output_peak_db, self.output_rms_db, _ = self.calculate_levels(out)
+        self.clipped = self.input_peak_db >= -0.01
 
         return out

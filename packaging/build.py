@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_DIR = ROOT_DIR / "build"
-PORTABLE_ZIP = ROOT_DIR / "dist" / "VocalFlowStudio_Portatil_v1.0.0.zip"
+PORTABLE_ZIP = ROOT_DIR / "dist" / "VocalFlowStudio_Portatil_v1.1.0.zip"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -39,16 +39,19 @@ def build():
         print("[Build] ERRO: Diretorio gerado nao encontrado.")
         sys.exit(1)
 
-    # Marca para modo portátil automático criando portable.txt
-    (target_app_dir / "portable.txt").write_text("VocalFlowStudio Portable Mode\n", encoding="utf-8")
-
     # Copia README e manuais
     shutil.copy(ROOT_DIR / "README.md", target_app_dir / "LEIAME.txt")
     if (ROOT_DIR / "docs" / "GUIA_INSTALACAO.md").exists():
         shutil.copy(ROOT_DIR / "docs" / "GUIA_INSTALACAO.md", target_app_dir / "GUIA_INSTALACAO.txt")
 
     print("[Build] Gerando arquivo ZIP portatil...")
-    shutil.make_archive(str(DIST_DIR / "VocalFlowStudio_Portatil_v1.0.0"), "zip", target_app_dir)
+    # Only the portable ZIP includes the marker; the installer uses this folder later.
+    marker = target_app_dir / "portable.txt"
+    try:
+        marker.write_text("VocalFlowStudio Portable Mode\n", encoding="utf-8")
+        shutil.make_archive(str(DIST_DIR / "VocalFlowStudio_Portatil_v1.1.0"), "zip", target_app_dir)
+    finally:
+        marker.unlink(missing_ok=True)
 
     print("\n" + "=" * 60)
     print("[Build] SUCESSO: Compilacao concluida!")

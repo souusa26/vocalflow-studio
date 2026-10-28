@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional, Callable
 import numpy as np
 import scipy.signal
+import scipy.ndimage
 import soundfile as sf
 
 from app.config import get_stems_dir, get_models_dir
@@ -30,6 +31,8 @@ class SeparationEngine:
 
     def is_demucs_available(self) -> bool:
         """Verifica se a biblioteca Demucs e PyTorch estão instaladas no ambiente."""
+        if getattr(sys, "frozen", False):
+            return False
         try:
             import demucs
             import torch
@@ -87,6 +90,8 @@ class SeparationEngine:
             data = data[:, :2]
 
         total_samples = len(data)
+        if not total_samples:
+            raise ValueError("O arquivo de áudio está vazio.")
 
         if progress_cb:
             progress_cb(15, "Analisando espectrograma e frequências...")
@@ -94,6 +99,11 @@ class SeparationEngine:
         # STFT em blocos
         n_fft = 2048
         hop_length = 512
+
+        # SciPy reduces nperseg for short clips, which makes noverlap invalid.
+        # Pad for analysis and trim the reconstructed stems back to their duration.
+        if total_samples < n_fft:
+            data = np.pad(data, ((0, n_fft - total_samples), (0, 0)))
 
         _, _, Zxx_left = scipy.signal.stft(data[:, 0], fs=sr, nperseg=n_fft, noverlap=n_fft - hop_length)
         _, _, Zxx_right = scipy.signal.stft(data[:, 1], fs=sr, nperseg=n_fft, noverlap=n_fft - hop_length)
@@ -107,8 +117,6 @@ class SeparationEngine:
         # 1. Extração do canal central (Vocal principal costuma estar mixado no centro)
         mag_l = np.abs(Zxx_left)
         mag_r = np.abs(Zxx_right)
-        phase_l = np.angle(Zxx_left)
-        phase_r = np.angle(Zxx_right)
 
         # Máscara de correlação central
         min_mag = np.minimum(mag_l, mag_r)
@@ -116,7 +124,7 @@ class SeparationEngine:
         center_mask = min_mag / max_mag
 
         # Filtro de frequências típico da voz humana (150 Hz a 6 kHz)
-        freqs = scipy.signal.stft(data[:n_fft, 0], fs=sr, nperseg=n_fft)[0]
+        freqs = np.fft.rfftfreq(n_fft, d=1 / sr)
         vocal_freq_mask = ((freqs >= 150) & (freqs <= 6500))[:, np.newaxis]
         
         vocal_mask = (center_mask ** 1.8) * vocal_freq_mask
@@ -126,7 +134,7 @@ class SeparationEngine:
         vocal_stft_r = Zxx_right * vocal_mask
 
         # Espectrograma do Instrumental (mix original menos o centro vocal)
-        inst_mask = np.clip(1.0 - (vocal_mask * 0.95), 0.05, 1.0)
+        inst_mask = 1.0 - vocal_mask
         inst_stft_l = Zxx_left * inst_mask
         inst_stft_r = Zxx_right * inst_mask
 
@@ -152,8 +160,8 @@ class SeparationEngine:
         drum_stft_r = (inst_stft_r * (~bass_freq_mask)) * drum_mask
 
         # 4. Outros instrumentos (sintetizadores, guitarras, teclados, pads)
-        other_stft_l = inst_stft_l - bass_stft_l - (drum_stft_l * 0.7)
-        other_stft_r = inst_stft_r - bass_stft_r - (drum_stft_r * 0.7)
+        other_stft_l = inst_stft_l - bass_stft_l - drum_stft_l
+        other_stft_r = inst_stft_r - bass_stft_r - drum_stft_r
 
         if self.is_cancelled:
             raise InterruptedError("Operação cancelada pelo usuário.")
@@ -197,11 +205,12 @@ class SeparationEngine:
             "other": output_folder / "other.wav",
         }
 
-        sf.write(str(paths["vocals"]), vocals, sr)
-        sf.write(str(paths["instrumental"]), instrumental, sr)
-        sf.write(str(paths["drums"]), drums, sr)
-        sf.write(str(paths["bass"]), bass, sr)
-        sf.write(str(paths["other"]), other, sr)
+        # Floating point WAV avoids clipping individual stems before mixdown.
+        sf.write(str(paths["vocals"]), vocals, sr, subtype="FLOAT")
+        sf.write(str(paths["instrumental"]), instrumental, sr, subtype="FLOAT")
+        sf.write(str(paths["drums"]), drums, sr, subtype="FLOAT")
+        sf.write(str(paths["bass"]), bass, sr, subtype="FLOAT")
+        sf.write(str(paths["other"]), other, sr, subtype="FLOAT")
 
         if progress_cb:
             progress_cb(100, "Separação de Stems concluída com sucesso!")
@@ -236,13 +245,17 @@ class SeparationEngine:
                 progress_cb(30, "Processando tensores neurais (separação profunda)...")
 
             import subprocess
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
             
             while proc.poll() is None:
                 if self.is_cancelled:
                     proc.kill()
+                    proc.wait()
                     raise InterruptedError("Operação cancelada pelo usuário.")
                 time.sleep(0.5)
+
+            if proc.returncode != 0:
+                raise RuntimeError(f"Demucs encerrou com código {proc.returncode}.")
 
             # Localiza os stems gerados
             demucs_stem_dir = output_folder.parent / DEMUCS_MODEL_NAME / audio_path.stem
@@ -267,6 +280,8 @@ class SeparationEngine:
                 progress_cb(100, "Separação neural Demucs concluída!")
             return paths
 
+        except InterruptedError:
+            raise
         except Exception as e:
             if progress_cb:
                 progress_cb(20, "Modelo neural Demucs não disponível. Usando motor nativo espectral...")

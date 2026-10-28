@@ -22,19 +22,26 @@ class TabLyrics(QWidget):
         self.active_lyric_id = None
         self._is_loading = False
 
-        self._init_ui()
-        self._refresh_list()
-
-        # Timer de debounce para Autosave (salva 600ms após a última digitação)
+        self._dirty = False
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setSingleShot(True)
         self.autosave_timer.setInterval(600)
         self.autosave_timer.timeout.connect(self._perform_autosave)
+        self._init_ui()
+        self._refresh_list()
 
     def _init_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(14)
+
+        title = QLabel("Suas letras")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        subtitle = QLabel("Escreva suas ideias, encontre uma letra e exporte quando quiser.")
+        subtitle.setObjectName("pageSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -44,10 +51,14 @@ class TabLyrics(QWidget):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 8, 0)
-        left_layout.setSpacing(8)
+        left_layout.setSpacing(10)
+
+        library_title = QLabel("BIBLIOTECA")
+        library_title.setObjectName("sectionTitle")
+        left_layout.addWidget(library_title)
 
         # Botão Nova Letra
-        btn_new = QPushButton("✍️ + Nova Letra")
+        btn_new = QPushButton("+ Nova letra")
         btn_new.setObjectName("btn_primary")
         btn_new.setFixedHeight(36)
         btn_new.clicked.connect(self._create_new_lyric)
@@ -55,7 +66,8 @@ class TabLyrics(QWidget):
 
         # Campo de Pesquisa
         self.edit_search = QLineEdit()
-        self.edit_search.setPlaceholderText("🔍 Buscar letra por título...")
+        self.edit_search.setPlaceholderText("Buscar por título ou conteúdo")
+        self.edit_search.setClearButtonEnabled(True)
         self.edit_search.textChanged.connect(self._refresh_list)
         left_layout.addWidget(self.edit_search)
 
@@ -63,6 +75,11 @@ class TabLyrics(QWidget):
         self.list_lyrics = QListWidget()
         self.list_lyrics.itemSelectionChanged.connect(self._on_selection_changed)
         left_layout.addWidget(self.list_lyrics)
+
+        self.lbl_library_hint = QLabel("Selecione uma letra para editar.")
+        self.lbl_library_hint.setObjectName("pageSubtitle")
+        self.lbl_library_hint.setWordWrap(True)
+        left_layout.addWidget(self.lbl_library_hint)
 
         left_panel.setMinimumWidth(240)
         splitter.addWidget(left_panel)
@@ -78,49 +95,53 @@ class TabLyrics(QWidget):
         # Cabeçalho: Título da Letra e Ações
         header_row = QHBoxLayout()
         self.edit_title = QLineEdit()
-        self.edit_title.setPlaceholderText("Título da Letra...")
-        self.edit_title.setStyleSheet("font-size: 16px; font-weight: bold; padding: 8px;")
+        self.edit_title.setPlaceholderText("Dê um título à sua letra")
+        self.edit_title.setAccessibleName("Título da letra")
         self.edit_title.textChanged.connect(self._on_content_changed)
         header_row.addWidget(self.edit_title, stretch=1)
 
-        btn_export = QPushButton("📤 Exportar (.txt)")
-        btn_export.clicked.connect(self._export_txt)
-        header_row.addWidget(btn_export)
+        self.btn_export = QPushButton("Exportar TXT")
+        self.btn_export.setToolTip("Salva uma cópia desta letra em um arquivo de texto.")
+        self.btn_export.clicked.connect(self._export_txt)
+        header_row.addWidget(self.btn_export)
 
-        btn_delete = QPushButton("🗑️ Excluir")
-        btn_delete.clicked.connect(self._delete_current_lyric)
-        header_row.addWidget(btn_delete)
+        self.btn_delete = QPushButton("Excluir")
+        self.btn_delete.setToolTip("Excluir a letra selecionada.")
+        self.btn_delete.clicked.connect(self._delete_current_lyric)
+        header_row.addWidget(self.btn_delete)
 
         right_layout.addLayout(header_row)
 
         # Área de Escrita de Letra
         self.text_editor = QTextEdit()
-        font = QFont("Consolas", 12)
-        font.setStyleHint(QFont.StyleHint.Monospace)
+        font = QFont("Segoe UI", 12)
+        font.setStyleHint(QFont.StyleHint.SansSerif)
         self.text_editor.setFont(font)
-        self.text_editor.setPlaceholderText("Escreva aqui suas barras, versos e rimas...\nO texto é salvo automaticamente.")
+        self.text_editor.setPlaceholderText("Comece a escrever sua letra aqui...\n\nSuas alterações são salvas automaticamente.")
+        self.text_editor.setAccessibleName("Conteúdo da letra")
         self.text_editor.textChanged.connect(self._on_content_changed)
         right_layout.addWidget(self.text_editor)
 
         # Barra de Status Inferior: Autosave badge + contadores
         status_row = QHBoxLayout()
 
-        self.lbl_autosave = QLabel("● Salvo")
-        self.lbl_autosave.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
+        self.lbl_autosave = QLabel("Salvo automaticamente")
+        self.lbl_autosave.setStyleSheet("color: #45d6ae; font-weight: bold; font-size: 11px;")
         status_row.addWidget(self.lbl_autosave)
 
         status_row.addStretch()
 
         self.lbl_stats = QLabel("0 versos | 0 palavras")
-        self.lbl_stats.setStyleSheet("color: #9e9e9e; font-size: 11px;")
+        self.lbl_stats.setStyleSheet("color: #a7b1c6; font-size: 11px;")
         status_row.addWidget(self.lbl_stats)
 
         right_layout.addLayout(status_row)
         splitter.addWidget(right_panel)
 
+        splitter.setChildrenCollapsible(False)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, stretch=1)
 
     # -------------------------------------------------------------
     # OPERAÇÕES DE LISTA E SELEÇÃO
@@ -132,12 +153,29 @@ class TabLyrics(QWidget):
         self.list_lyrics.blockSignals(True)
         self.list_lyrics.clear()
 
+        active_item = None
         for item in lyrics:
-            list_item = QListWidgetItem(f"📝 {item['title']}")
+            list_item = QListWidgetItem(item['title'])
             list_item.setData(Qt.ItemDataRole.UserRole, item["id"])
             self.list_lyrics.addItem(list_item)
+            if item["id"] == self.active_lyric_id:
+                active_item = list_item
+
+        if active_item:
+            self.list_lyrics.setCurrentItem(active_item)
 
         self.list_lyrics.blockSignals(False)
+
+        if lyrics:
+            self.lbl_library_hint.setText(f"{len(lyrics)} letra(s) encontrada(s).")
+        elif query.strip():
+            self.lbl_library_hint.setText("Nenhuma letra encontrada. Tente outra busca.")
+        else:
+            self.lbl_library_hint.setText("Crie uma letra para começar a escrever.")
+
+        has_active = self.active_lyric_id is not None
+        for widget in (self.edit_title, self.text_editor, self.btn_export, self.btn_delete):
+            widget.setEnabled(has_active)
 
         # Se houver itens e nenhum ativo, seleciona o primeiro
         if self.list_lyrics.count() > 0 and self.active_lyric_id is None:
@@ -149,6 +187,17 @@ class TabLyrics(QWidget):
             return
 
         lyric_id = current_item.data(Qt.ItemDataRole.UserRole)
+        if lyric_id == self.active_lyric_id:
+            return
+        if lyric_id != self.active_lyric_id and not self.flush_pending_save():
+            self.list_lyrics.blockSignals(True)
+            for index in range(self.list_lyrics.count()):
+                item = self.list_lyrics.item(index)
+                if item.data(Qt.ItemDataRole.UserRole) == self.active_lyric_id:
+                    self.list_lyrics.setCurrentItem(item)
+                    break
+            self.list_lyrics.blockSignals(False)
+            return
         data = self.lyrics_mgr.get_lyric(lyric_id)
         if not data:
             return
@@ -157,13 +206,23 @@ class TabLyrics(QWidget):
         self.active_lyric_id = lyric_id
         self.edit_title.setText(data.get("title", ""))
         self.text_editor.setPlainText(data.get("content", ""))
-        self.lbl_autosave.setText("● Salvo")
-        self.lbl_autosave.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
+        self.lbl_autosave.setText("Salvo automaticamente")
+        self.lbl_autosave.setStyleSheet("color: #45d6ae; font-weight: bold; font-size: 11px;")
         self._update_stats()
         self._is_loading = False
+        for widget in (self.edit_title, self.text_editor, self.btn_export, self.btn_delete):
+            widget.setEnabled(True)
 
     def _create_new_lyric(self):
-        data = self.lyrics_mgr.create_lyric("Nova Letra de Rap", "")
+        if not self.flush_pending_save():
+            return
+        # A filter must not hide the new item immediately after creating it.
+        self.edit_search.clear()
+        try:
+            data = self.lyrics_mgr.create_lyric("Nova Letra de Rap", "")
+        except OSError as exc:
+            QMessageBox.warning(self, "Letras", f"Não foi possível criar a letra: {exc}")
+            return
         self._refresh_list()
         
         # Seleciona o novo item
@@ -178,26 +237,37 @@ class TabLyrics(QWidget):
     def _on_content_changed(self):
         if self._is_loading:
             return
+        self._dirty = True
         self.lbl_autosave.setText("● Salvando...")
-        self.lbl_autosave.setStyleSheet("color: #ffb300; font-weight: bold; font-size: 11px;")
+        self.lbl_autosave.setStyleSheet("color: #ffd48b; font-weight: bold; font-size: 11px;")
         self._update_stats()
         self.autosave_timer.start()
 
+    def flush_pending_save(self):
+        self.autosave_timer.stop()
+        return self._perform_autosave() if self._dirty else True
+
     def _perform_autosave(self):
         if not self.active_lyric_id:
-            return
+            return True
 
         title = self.edit_title.text().strip() or "Sem Título"
         content = self.text_editor.toPlainText()
 
-        self.lyrics_mgr.update_lyric(self.active_lyric_id, title=title, content=content)
+        if not self.lyrics_mgr.update_lyric(self.active_lyric_id, title=title, content=content):
+            self.lbl_autosave.setText("● Falha ao salvar — mantenha esta letra aberta")
+            self.lbl_autosave.setStyleSheet("color: #ff8e9d; font-weight: bold;")
+            return False
+        self._dirty = False
         self.lbl_autosave.setText("● Salvo")
-        self.lbl_autosave.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
+        self.lbl_autosave.setStyleSheet("color: #45d6ae; font-weight: bold; font-size: 11px;")
 
         # Atualiza título na lista lateral
         current_item = self.list_lyrics.currentItem()
         if current_item and current_item.data(Qt.ItemDataRole.UserRole) == self.active_lyric_id:
-            current_item.setText(f"📝 {title}")
+            current_item.setText(title)
+
+        return True
 
     def _update_stats(self):
         text = self.text_editor.toPlainText()
@@ -215,14 +285,22 @@ class TabLyrics(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self.lyrics_mgr.delete_lyric(self.active_lyric_id)
+            if not self.lyrics_mgr.delete_lyric(self.active_lyric_id):
+                QMessageBox.warning(self, "Letras", "Não foi possível excluir a letra.")
+                return
+            self.autosave_timer.stop()
+            self._dirty = False
             self.active_lyric_id = None
             self._refresh_list()
             if self.list_lyrics.count() == 0:
+                self._is_loading = True
                 self.edit_title.clear()
                 self.text_editor.clear()
+                self._is_loading = False
 
     def _export_txt(self):
+        if not self.flush_pending_save():
+            return
         if not self.active_lyric_id:
             return
         title = self.edit_title.text().strip() or "letra"
